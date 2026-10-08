@@ -43,11 +43,39 @@ class PegasosSVM:
         self.random_state = random_state
         self.w = None              # weight vector
         self.b = 0.0               # bias
+        self.classes_ = None       # [negative_label, positive_label]
+        self.class_to_pm1_ = None  # original label -> {-1.0, +1.0}
 
-    @staticmethod
-    def _to_pm1(y):
-        """Map {0,1} (or any 2-class labels) to {-1, +1}. Store the mapping."""
-        raise NotImplementedError("TODO: encode labels to +/-1")
+    def _to_pm1(self, y):
+        """Encode a one-dimensional binary target as ``{-1.0, +1.0}``.
+
+        ``numpy.unique`` gives the encoding a deterministic order: the first
+        class maps to ``-1`` and the second class maps to ``+1``.  The class
+        order and the explicit mapping are retained so :meth:`predict` can
+        return labels in their original dtype.
+        """
+        labels = np.asarray(y)
+        if labels.ndim != 1:
+            raise ValueError("y must be a one-dimensional array of labels")
+        if labels.size == 0:
+            raise ValueError("y must contain at least one label")
+
+        try:
+            classes = np.unique(labels)
+        except TypeError as exc:
+            raise ValueError("labels must be mutually comparable") from exc
+
+        if classes.size != 2:
+            raise ValueError(
+                f"PegasosSVM requires exactly two classes; got {classes.size}"
+            )
+
+        self.classes_ = classes.copy()
+        self.class_to_pm1_ = {
+            self.classes_[0].item(): -1.0,
+            self.classes_[1].item(): 1.0,
+        }
+        return np.where(labels == self.classes_[0], -1.0, 1.0)
 
     def fit(self, X, y):
         """
@@ -59,8 +87,30 @@ class PegasosSVM:
 
     def decision_function(self, X):
         """Return the signed margin  w . x + b  for each row."""
-        raise NotImplementedError("TODO: decision_function")
+        if self.w is None:
+            raise RuntimeError("PegasosSVM must be fitted before prediction")
+
+        X = np.asarray(X, dtype=float)
+        if X.ndim != 2:
+            raise ValueError("X must be a two-dimensional feature matrix")
+
+        w = np.asarray(self.w, dtype=float)
+        if w.ndim != 1:
+            raise RuntimeError("fitted weight vector must be one-dimensional")
+        if X.shape[1] != w.shape[0]:
+            raise ValueError(
+                "X has a different number of features than the fitted model "
+                f"({X.shape[1]} != {w.shape[0]})"
+            )
+
+        return X @ w + float(self.b)
 
     def predict(self, X):
         """Return class labels (map sign of decision_function back to your labels)."""
-        raise NotImplementedError("TODO: predict")
+        if self.classes_ is None or len(self.classes_) != 2:
+            raise RuntimeError("PegasosSVM must be fitted before prediction")
+
+        margins = self.decision_function(X)
+        # A point exactly on the hyperplane is assigned to the positive class.
+        class_indices = (margins >= 0.0).astype(int)
+        return self.classes_[class_indices]
