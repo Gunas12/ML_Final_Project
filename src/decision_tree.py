@@ -7,8 +7,8 @@ Must support BOTH tasks:
 
 scikit-learn is NOT allowed here. This is your own code.
 
-STATUS (step 1 of the plan): impurity functions + best-split search are
-implemented. _grow / _predict_one / predict / predict_proba are the NEXT steps.
+STATUS: impurity, best split, recursive growth, prediction, predict_proba,
+feature_importances_, depth_/n_leaves_, export_text are implemented.
 
 Conventions
 -----------
@@ -28,13 +28,16 @@ import numpy as np
 
 
 class Node:
-    """One node of the tree. Fill in the fields you need."""
+    """One node of the tree."""
     def __init__(self):
         self.feature = None      # int: feature index to split on (internal)
         self.threshold = None    # float: split threshold (internal)
-        self.left = None         # Node
-        self.right = None        # Node
-        self.value = None        # leaf prediction (class label/proba or mean)
+        self.left = None         # Node   (x[feature] <= threshold)
+        self.right = None        # Node   (x[feature] >  threshold)
+        self.value = None        # classification: class COUNTS (K,)   regression: mean
+        self.n_samples = 0       # training samples that reached this node
+        self.impurity = 0.0      # impurity of this node
+        self.decrease = 0.0      # weighted impurity decrease of this node's split (internal only)
 
     def is_leaf(self) -> bool:
         return self.left is None and self.right is None
@@ -201,10 +204,50 @@ class DecisionTree:
         decrease = max(best_gain, 0.0) * n / n_total
         return best[0], best[1], float(decrease)
 
-    # --- grow / predict (NEXT STEPS) ----------------------------------------
+    # --- grow ---------------------------------------------------------------
+    def _make_node(self, y) -> Node:
+        node = Node()
+        node.n_samples = int(y.shape[0])
+        node.impurity = self._impurity(y)
+        if self.task == "classification":
+            node.value = np.bincount(y, minlength=len(self.classes_)).astype(float)
+        else:
+            node.value = float(np.mean(y))
+        return node
+
     def _grow(self, X, y, depth: int) -> Node:
-        """Recursively build the tree, respecting the stopping rules."""
-        raise NotImplementedError("TODO: recursive grow")
+        """
+        Recursively build the tree. A node becomes a LEAF when
+          * depth >= max_depth                      (if max_depth is set)
+          * n < min_samples_split
+          * n < 2 * min_samples_leaf                (no valid split can exist)
+          * the node is pure (impurity == 0)
+          * no valid split exists
+          * the best split's decrease < min_impurity_decrease
+        For classification `y` holds integer class codes 0..K-1 (see fit).
+        """
+        node = self._make_node(y)
+        n = node.n_samples
+        if (
+            (self.max_depth is not None and depth >= self.max_depth)
+            or n < self.min_samples_split
+            or n < 2 * self.min_samples_leaf
+            or node.impurity <= 0.0
+        ):
+            return node
+
+        split = self._best_split(X, y)
+        if split is None:
+            return node
+        feature, threshold, decrease = split
+        if decrease + 1e-12 < self.min_impurity_decrease:
+            return node
+
+        mask = X[:, feature] <= threshold
+        node.feature, node.threshold, node.decrease = feature, threshold, decrease
+        node.left = self._grow(X[mask], y[mask], depth + 1)
+        node.right = self._grow(X[~mask], y[~mask], depth + 1)
+        return node
 
     def fit(self, X, y):
         self._check_params()
@@ -214,19 +257,140 @@ class DecisionTree:
             raise ValueError("X must be 2-D (n_samples, n_features)")
         if X.shape[0] != y.shape[0]:
             raise ValueError("X and y must have the same number of rows")
+        if X.shape[0] == 0:
+            raise ValueError("cannot fit on an empty dataset")
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X contains NaN or infinity; clean the data first")
         self._n_total = X.shape[0]
         self.n_features_ = X.shape[1]
         if self.task == "classification":
             self.classes_ = np.unique(y)
-        self.root = self._grow(X, y, depth=0)
+            y_fit = np.searchsorted(self.classes_, y)      # labels -> codes 0..K-1
+        else:
+            y_fit = y.astype(float)
+        self.root = self._grow(X, y_fit, depth=0)
         return self
 
+    # --- predict ------------------------------------------------------------
+    def _check_fitted(self, X) -> np.ndarray:
+        if self.root is None:
+            raise RuntimeError("this DecisionTree is not fitted yet; call fit(X, y) first")
+        X = np.asarray(X, dtype=float)
+        if X.ndim != 2 or X.shape[1] != self.n_features_:
+            raise ValueError(f"X must have shape (n, {self.n_features_})")
+        return X
+
     def _predict_one(self, x, node: Node):
-        raise NotImplementedError("TODO: traverse to a leaf")
+        """Walk ONE sample down to a leaf and return the leaf value."""
+        while not node.is_leaf():
+            node = node.left if x[node.feature] <= node.threshold else node.right
+        return node.value
+
+    def _leaf_values(self, X) -> np.ndarray:
+        """Leaf value for every row of X (all rows are routed down together)."""
+        n = X.shape[0]
+        k = len(self.classes_) if self.task == "classification" else None
+        out = np.empty((n, k)) if k else np.empty(n)
+        stack = [(self.root, np.arange(n))]
+        while stack:
+            node, idx = stack.pop()
+            if idx.size == 0:
+                continue
+            if node.is_leaf():
+                out[idx] = node.value
+                continue
+            go_left = X[idx, node.feature] <= node.threshold
+            stack.append((node.left, idx[go_left]))
+            stack.append((node.right, idx[~go_left]))
+        return out
 
     def predict(self, X):
-        raise NotImplementedError("TODO: predict")
+        X = self._check_fitted(X)
+        vals = self._leaf_values(X)
+        if self.task == "classification":
+            return self.classes_[np.argmax(vals, axis=1)]   # ties -> smallest class
+        return vals
 
     def predict_proba(self, X):
-        """Classification only: return class probabilities from leaf counts."""
-        raise NotImplementedError("TODO: predict_proba (classification)")
+        """Classification only: class probabilities = leaf class counts / leaf size."""
+        if self.task != "classification":
+            raise ValueError("predict_proba is only available for classification")
+        X = self._check_fitted(X)
+        counts = self._leaf_values(X)
+        return counts / counts.sum(axis=1, keepdims=True)
+
+    # --- inspection ---------------------------------------------------------
+    def _nodes(self):
+        """All nodes (depth-first), as (node, depth) pairs."""
+        if self.root is None:
+            return []
+        out, stack = [], [(self.root, 0)]
+        while stack:
+            node, d = stack.pop()
+            out.append((node, d))
+            if not node.is_leaf():
+                stack.append((node.right, d + 1))
+                stack.append((node.left, d + 1))
+        return out
+
+    @property
+    def depth_(self) -> int:
+        """Depth of the deepest leaf (a single-leaf tree has depth 0)."""
+        return max((d for _, d in self._nodes()), default=0)
+
+    @property
+    def n_nodes_(self) -> int:
+        return len(self._nodes())
+
+    @property
+    def n_leaves_(self) -> int:
+        return sum(1 for node, _ in self._nodes() if node.is_leaf())
+
+    @property
+    def feature_importances_(self) -> np.ndarray:
+        """
+        Impurity-decrease importance: sum of the (weighted) decreases of all
+        splits on a feature, normalised to sum to 1. All zeros if no split.
+        """
+        if self.root is None:
+            raise RuntimeError("this DecisionTree is not fitted yet; call fit(X, y) first")
+        imp = np.zeros(self.n_features_)
+        for node, _ in self._nodes():
+            if not node.is_leaf():
+                imp[node.feature] += node.decrease
+        total = imp.sum()
+        return imp / total if total > 0 else imp
+
+    def export_text(self, feature_names=None, max_depth: int | None = None) -> str:
+        """Human-readable rules (useful for the report and for debugging)."""
+        if self.root is None:
+            raise RuntimeError("this DecisionTree is not fitted yet; call fit(X, y) first")
+        names = feature_names or [f"x{j}" for j in range(self.n_features_)]
+        lines = []
+
+        def leaf_text(node):
+            if self.task == "classification":
+                return f"class: {self.classes_[int(np.argmax(node.value))]}  (n={node.n_samples}, counts={node.value.astype(int).tolist()})"
+            return f"value: {node.value:.4g}  (n={node.n_samples})"
+
+        def rec(node, depth):
+            pad = "|   " * depth
+            if node.is_leaf() or (max_depth is not None and depth >= max_depth):
+                lines.append(f"{pad}|--- {leaf_text(node)}")
+                return
+            f, thr = names[node.feature], node.threshold
+            lines.append(f"{pad}|--- {f} <= {thr:.4g}")
+            rec(node.left, depth + 1)
+            lines.append(f"{pad}|--- {f} >  {thr:.4g}")
+            rec(node.right, depth + 1)
+
+        rec(self.root, 0)
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        params = (f"task={self.task!r}, criterion={self.criterion!r}, max_depth={self.max_depth}, "
+                  f"min_samples_split={self.min_samples_split}, min_samples_leaf={self.min_samples_leaf}, "
+                  f"min_impurity_decrease={self.min_impurity_decrease}")
+        if self.root is None:
+            return f"DecisionTree({params}) [not fitted]"
+        return f"DecisionTree({params}) [depth={self.depth_}, leaves={self.n_leaves_}, nodes={self.n_nodes_}]"
