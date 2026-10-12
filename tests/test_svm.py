@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from src.svm import PegasosSVM
+from src.svm import PegasosSVM, RandomFourierFeatures
 
 
 class TestPegasosSVMLabels(unittest.TestCase):
@@ -30,6 +30,148 @@ class TestPegasosSVMLabels(unittest.TestCase):
             with self.subTest(labels=labels):
                 with self.assertRaisesRegex(ValueError, "exactly two classes"):
                     PegasosSVM()._to_pm1(labels)
+
+
+class TestRandomFourierFeatures(unittest.TestCase):
+    def setUp(self):
+        self.X_train = np.array(
+            [[-1.0, 0.5], [0.0, 1.0], [1.5, -0.5], [2.0, 1.0]]
+        )
+
+    def test_output_shape_and_finite_values(self):
+        transformed = RandomFourierFeatures(n_components=32).fit_transform(
+            self.X_train
+        )
+
+        self.assertEqual(transformed.shape, (4, 32))
+        self.assertTrue(np.all(np.isfinite(transformed)))
+
+    def test_same_seed_reproduces_mapping_and_transform(self):
+        first = RandomFourierFeatures(n_components=16, random_state=7).fit(
+            self.X_train
+        )
+        second = RandomFourierFeatures(n_components=16, random_state=7).fit(
+            self.X_train
+        )
+
+        np.testing.assert_array_equal(first.W_, second.W_)
+        np.testing.assert_array_equal(first.offset_, second.offset_)
+        np.testing.assert_array_equal(
+            first.transform(self.X_train), second.transform(self.X_train)
+        )
+
+    def test_different_seeds_produce_different_transforms(self):
+        first = RandomFourierFeatures(n_components=16, random_state=1)
+        second = RandomFourierFeatures(n_components=16, random_state=2)
+
+        first_result = first.fit_transform(self.X_train)
+        second_result = second.fit_transform(self.X_train)
+
+        self.assertFalse(np.array_equal(first_result, second_result))
+
+    def test_transform_before_fit_raises(self):
+        with self.assertRaisesRegex(RuntimeError, "fitted"):
+            RandomFourierFeatures().transform(self.X_train)
+
+    def test_fit_returns_self(self):
+        mapping = RandomFourierFeatures()
+
+        self.assertIs(mapping.fit(self.X_train), mapping)
+
+    def test_fit_transform_matches_fit_then_transform(self):
+        combined = RandomFourierFeatures(n_components=24, random_state=11)
+        separate = RandomFourierFeatures(n_components=24, random_state=11)
+
+        combined_result = combined.fit_transform(self.X_train)
+        separate_result = separate.fit(self.X_train).transform(self.X_train)
+
+        np.testing.assert_array_equal(combined_result, separate_result)
+
+    def test_validation_transform_reuses_training_mapping(self):
+        mapping = RandomFourierFeatures(
+            n_components=20, gamma=0.75, random_state=5
+        ).fit(self.X_train)
+        W_before = mapping.W_.copy()
+        offset_before = mapping.offset_.copy()
+        X_validation = np.array([[0.25, -0.75], [1.25, 0.5]])
+
+        transformed = mapping.transform(X_validation)
+        expected = np.sqrt(2.0 / 20) * np.cos(
+            X_validation @ W_before + offset_before
+        )
+
+        np.testing.assert_allclose(transformed, expected)
+        np.testing.assert_array_equal(mapping.W_, W_before)
+        np.testing.assert_array_equal(mapping.offset_, offset_before)
+
+    def test_invalid_hyperparameters_raise(self):
+        invalid_mappings = [
+            RandomFourierFeatures(n_components=0),
+            RandomFourierFeatures(n_components=-1),
+            RandomFourierFeatures(n_components=1.5),
+            RandomFourierFeatures(n_components=True),
+            RandomFourierFeatures(gamma=0.0),
+            RandomFourierFeatures(gamma=-1.0),
+            RandomFourierFeatures(gamma=np.inf),
+            RandomFourierFeatures(gamma=True),
+        ]
+
+        for mapping in invalid_mappings:
+            with self.subTest(
+                n_components=mapping.n_components, gamma=mapping.gamma
+            ):
+                with self.assertRaises(ValueError):
+                    mapping.fit(self.X_train)
+
+    def test_invalid_fit_and_transform_inputs_raise(self):
+        invalid_fit_inputs = [
+            np.empty((0, 2)),
+            np.empty((2, 0)),
+            np.array([1.0, 2.0]),
+            np.array([[0.0, np.nan]]),
+            np.array([[0.0, np.inf]]),
+        ]
+        for X in invalid_fit_inputs:
+            with self.subTest(stage="fit", shape=X.shape):
+                with self.assertRaises(ValueError):
+                    RandomFourierFeatures().fit(X)
+
+        mapping = RandomFourierFeatures().fit(self.X_train)
+        invalid_transform_inputs = [
+            np.empty((0, 2)),
+            np.array([1.0, 2.0]),
+            np.array([[0.0, np.nan]]),
+            np.array([[0.0, np.inf]]),
+            np.ones((2, 3)),
+        ]
+        for X in invalid_transform_inputs:
+            with self.subTest(stage="transform", shape=X.shape):
+                with self.assertRaises(ValueError):
+                    mapping.transform(X)
+
+    def test_rff_with_pegasos_learns_xor(self):
+        rng = np.random.default_rng(2026)
+        centers = np.array([[-1.0, -1.0], [1.0, 1.0], [-1.0, 1.0], [1.0, -1.0]])
+        labels = np.array([0, 0, 1, 1])
+        X_parts = [rng.normal(center, 0.18, size=(80, 2)) for center in centers]
+        X = np.vstack(X_parts)
+        y = np.repeat(labels, 80)
+        order = rng.permutation(len(y))
+        X, y = X[order], y[order]
+        X_train, X_test = X[:240], X[240:]
+        y_train, y_test = y[:240], y[240:]
+
+        mapping = RandomFourierFeatures(
+            n_components=256, gamma=1.0, random_state=17
+        )
+        X_train_rff = mapping.fit_transform(X_train)
+        X_test_rff = mapping.transform(X_test)
+        model = PegasosSVM(lambda_=0.1, n_iters=12_000, random_state=29)
+        model.fit(X_train_rff, y_train)
+
+        accuracy = np.mean(model.predict(X_test_rff) == y_test)
+
+        self.assertGreaterEqual(accuracy, 0.95)
 
 
 class TestPegasosSVMPrediction(unittest.TestCase):

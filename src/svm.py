@@ -31,6 +31,90 @@ from __future__ import annotations
 import numpy as np
 
 
+class RandomFourierFeatures:
+    """Approximate an RBF kernel with a randomized cosine feature map."""
+
+    def __init__(
+        self,
+        n_components: int = 256,
+        gamma: float = 1.0,
+        random_state: int = 42,
+    ):
+        self.n_components = n_components
+        self.gamma = gamma
+        self.random_state = random_state
+        self.W_ = None
+        self.offset_ = None
+        self.n_features_in_ = None
+
+    def fit(self, X):
+        """Sample and store the frequencies and offsets for the RFF map."""
+        if (
+            isinstance(self.n_components, (bool, np.bool_))
+            or not isinstance(self.n_components, (int, np.integer))
+            or self.n_components <= 0
+        ):
+            raise ValueError("n_components must be a positive integer")
+        if (
+            isinstance(self.gamma, (bool, np.bool_))
+            or not isinstance(self.gamma, (int, float, np.integer, np.floating))
+            or not np.isfinite(self.gamma)
+            or self.gamma <= 0
+        ):
+            raise ValueError("gamma must be a finite positive number")
+
+        X = self._validate_X(X, require_non_empty=True)
+        rng = np.random.default_rng(self.random_state)
+        scale = np.sqrt(2.0 * float(self.gamma))
+
+        self.n_features_in_ = X.shape[1]
+        self.W_ = rng.normal(
+            loc=0.0,
+            scale=scale,
+            size=(self.n_features_in_, int(self.n_components)),
+        )
+        self.offset_ = rng.uniform(
+            low=0.0,
+            high=2.0 * np.pi,
+            size=int(self.n_components),
+        )
+        return self
+
+    def transform(self, X):
+        """Map samples into the fitted random Fourier feature space."""
+        if self.W_ is None or self.offset_ is None or self.n_features_in_ is None:
+            raise RuntimeError("RandomFourierFeatures must be fitted before transform")
+
+        X = self._validate_X(X, require_non_empty=True)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                "X has a different number of features than the fitted mapping "
+                f"({X.shape[1]} != {self.n_features_in_})"
+            )
+
+        normalization = np.sqrt(2.0 / int(self.n_components))
+        return normalization * np.cos(X @ self.W_ + self.offset_)
+
+    def fit_transform(self, X):
+        """Fit the random mapping and transform ``X`` in one call."""
+        return self.fit(X).transform(X)
+
+    @staticmethod
+    def _validate_X(X, require_non_empty: bool):
+        try:
+            X = np.asarray(X, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("X must contain numeric values") from exc
+
+        if X.ndim != 2:
+            raise ValueError("X must be a two-dimensional feature matrix")
+        if require_non_empty and (X.shape[0] == 0 or X.shape[1] == 0):
+            raise ValueError("X must not be empty")
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must not contain NaN or infinite values")
+        return X
+
+
 class PegasosSVM:
     def __init__(
         self,
