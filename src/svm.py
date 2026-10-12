@@ -45,6 +45,8 @@ class PegasosSVM:
         self.b = 0.0               # bias
         self.classes_ = None       # [negative_label, positive_label]
         self.class_to_pm1_ = None  # original label -> {-1.0, +1.0}
+        self.loss_history_ = []    # objective values at monitored steps
+        self.loss_steps_ = []      # step numbers corresponding to the losses
 
     def _to_pm1(self, y):
         """Encode a one-dimensional binary target as ``{-1.0, +1.0}``.
@@ -79,11 +81,109 @@ class PegasosSVM:
 
     def fit(self, X, y):
         """
-        Run Pegasos. Sample one (or a mini-batch of) example(s) per step,
-        use eta_t = 1/(lambda*t), and apply the update above.
+        Run single-sample Pegasos with ``eta_t = 1 / (lambda_ * t)``.
+
+        The full objective is recorded at step zero, at approximately 100
+        evenly spaced checkpoints, and at the final step.  This keeps loss
+        monitoring useful without evaluating the entire training set after
+        every stochastic update.
+
         Return self.
         """
-        raise NotImplementedError("TODO: Pegasos training loop")
+        if (
+            isinstance(self.lambda_, (bool, np.bool_))
+            or not isinstance(self.lambda_, (int, float, np.integer, np.floating))
+            or not np.isfinite(self.lambda_)
+            or self.lambda_ <= 0
+        ):
+            raise ValueError("lambda_ must be a finite positive number")
+        if (
+            isinstance(self.n_iters, (bool, np.bool_))
+            or not isinstance(self.n_iters, (int, np.integer))
+            or self.n_iters <= 0
+        ):
+            raise ValueError("n_iters must be a positive integer")
+
+        try:
+            X = np.asarray(X, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("X must contain numeric values") from exc
+        y = np.asarray(y)
+
+        if X.ndim != 2:
+            raise ValueError("X must be a two-dimensional feature matrix")
+        if y.ndim != 1:
+            raise ValueError("y must be a one-dimensional label array")
+        if X.shape[0] == 0 or X.shape[1] == 0 or y.size == 0:
+            raise ValueError("X and y must not be empty")
+        if X.shape[0] != y.shape[0]:
+            raise ValueError(
+                "X and y must contain the same number of samples "
+                f"({X.shape[0]} != {y.shape[0]})"
+            )
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must not contain NaN or infinite values")
+        if self._has_non_finite_labels(y):
+            raise ValueError("y must not contain NaN or infinite values")
+
+        y_pm1 = self._to_pm1(y)
+        n_samples, n_features = X.shape
+        lambda_ = float(self.lambda_)
+
+        self.w = np.zeros(n_features, dtype=float)
+        self.b = 0.0
+        self.loss_steps_ = [0]
+        self.loss_history_ = [self._objective(X, y_pm1, lambda_)]
+
+        rng = np.random.default_rng(self.random_state)
+        checkpoint_interval = max(1, int(self.n_iters) // 100)
+
+        for t in range(1, int(self.n_iters) + 1):
+            eta_t = 1.0 / (lambda_ * t)
+            sample_idx = int(rng.integers(n_samples))
+            x_i = X[sample_idx]
+            y_i = y_pm1[sample_idx]
+            margin = y_i * (np.dot(self.w, x_i) + self.b)
+
+            self.w *= 1.0 - eta_t * lambda_
+            if margin < 1.0:
+                self.w += eta_t * y_i * x_i
+                self.b += eta_t * y_i
+
+            if t % checkpoint_interval == 0 or t == self.n_iters:
+                self.loss_steps_.append(t)
+                self.loss_history_.append(self._objective(X, y_pm1, lambda_))
+
+        return self
+
+    @staticmethod
+    def _has_non_finite_labels(y) -> bool:
+        """Return whether a label array contains NaN, infinity, NaT, or None."""
+        if y.dtype.kind in "fc":
+            return not bool(np.all(np.isfinite(y)))
+        if y.dtype.kind in "mM":
+            return bool(np.any(np.isnat(y)))
+        if y.dtype.kind != "O":
+            return False
+
+        for label in y:
+            if label is None:
+                return True
+            try:
+                is_finite = np.isfinite(label)
+                if np.ndim(is_finite) == 0 and not bool(is_finite):
+                    return True
+            except (TypeError, ValueError):
+                # Ordinary object/string labels do not define finiteness.
+                continue
+        return False
+
+    def _objective(self, X, y_pm1, lambda_: float) -> float:
+        """Compute the regularised mean hinge-loss objective."""
+        margins = y_pm1 * (X @ self.w + self.b)
+        hinge_loss = np.maximum(0.0, 1.0 - margins)
+        regularization = 0.5 * lambda_ * np.dot(self.w, self.w)
+        return float(regularization + np.mean(hinge_loss))
 
     def decision_function(self, X):
         """Return the signed margin  w . x + b  for each row."""

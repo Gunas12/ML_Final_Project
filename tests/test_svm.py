@@ -64,5 +64,79 @@ class TestPegasosSVMPrediction(unittest.TestCase):
             self.model.decision_function([[1.0, 2.0, 3.0]])
 
 
+class TestPegasosSVMFit(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        rng = np.random.default_rng(123)
+        negative = rng.normal(loc=-2.0, scale=0.35, size=(50, 2))
+        positive = rng.normal(loc=2.0, scale=0.35, size=(50, 2))
+        cls.X = np.vstack([negative, positive])
+        cls.y = np.array(["standard"] * 50 + ["premium"] * 50)
+
+    def make_model(self):
+        return PegasosSVM(lambda_=0.1, n_iters=4_000, random_state=7)
+
+    def test_fit_learns_separable_toy_data_and_reduces_loss(self):
+        model = self.make_model().fit(self.X, self.y)
+
+        accuracy = np.mean(model.predict(self.X) == self.y)
+        self.assertGreaterEqual(accuracy, 0.95)
+        self.assertLess(model.loss_history_[-1], model.loss_history_[0])
+        self.assertEqual(model.loss_steps_[0], 0)
+        self.assertEqual(model.loss_steps_[-1], model.n_iters)
+        self.assertEqual(len(model.loss_history_), len(model.loss_steps_))
+
+    def test_same_seed_produces_same_parameters(self):
+        first = self.make_model().fit(self.X, self.y)
+        second = self.make_model().fit(self.X, self.y)
+
+        np.testing.assert_array_equal(first.w, second.w)
+        self.assertEqual(first.b, second.b)
+
+    def test_fit_returns_self(self):
+        model = self.make_model()
+
+        result = model.fit(self.X, self.y)
+
+        self.assertIs(result, model)
+
+    def test_invalid_X_y_dimensions_are_rejected(self):
+        invalid_inputs = [
+            (np.array([1.0, 2.0]), np.array([0, 1]), "two-dimensional"),
+            (np.ones((2, 2)), np.array([[0], [1]]), "one-dimensional"),
+            (np.ones((3, 2)), np.array([0, 1]), "same number"),
+        ]
+
+        for X, y, message in invalid_inputs:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.make_model().fit(X, y)
+
+    def test_empty_and_non_finite_data_are_rejected(self):
+        invalid_inputs = [
+            (np.empty((0, 2)), np.array([]), "must not be empty"),
+            (np.array([[0.0], [np.nan]]), np.array([0, 1]), "NaN"),
+            (np.array([[0.0], [1.0]]), np.array([0.0, np.inf]), "NaN"),
+        ]
+
+        for X, y, message in invalid_inputs:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.make_model().fit(X, y)
+
+    def test_invalid_hyperparameters_are_rejected(self):
+        invalid_models = [
+            PegasosSVM(lambda_=0.0, n_iters=10),
+            PegasosSVM(lambda_=np.inf, n_iters=10),
+            PegasosSVM(lambda_=0.1, n_iters=0),
+            PegasosSVM(lambda_=0.1, n_iters=1.5),
+        ]
+
+        for model in invalid_models:
+            with self.subTest(lambda_=model.lambda_, n_iters=model.n_iters):
+                with self.assertRaises(ValueError):
+                    model.fit(self.X, self.y)
+
+
 if __name__ == "__main__":
     unittest.main()
