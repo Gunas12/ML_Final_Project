@@ -120,18 +120,79 @@ Describe your impurity criteria (Gini / entropy / MSE reduction), the
 split search, recursion, leaf rule, and hyperparameters.
 
 \subsection{Support-vector machine (from scratch)}
-State the objective and the Pegasos update you implemented:
+For the binary price-tier task, the two original class labels are mapped
+deterministically to $\{-1,+1\}$ during fitting. Predictions are mapped
+back to the original labels before evaluation. Our NumPy implementation
+minimises the soft-margin primal objective
 \begin{equation}
-  J(\mathbf{w},b)=\tfrac{\lambda}{2}\lVert\mathbf{w}\rVert^{2}
-  +\tfrac{1}{n}\sum_{i=1}^{n}\max\!\big(0,\,1-y_i(\mathbf{w}^{\top}\mathbf{x}_i+b)\big).
+  J(\mathbf{w},b)=
+  \frac{\lambda}{2}\lVert\mathbf{w}\rVert_2^2+
+  \frac{1}{n}\sum_{i=1}^{n}
+  \max\!\left(0,1-y_i(\mathbf{w}^{\top}\mathbf{x}_i+b)\right).
 \end{equation}
-Explain the learning-rate schedule, feature scaling, and your non-linear
-extension (kernelised Pegasos or random Fourier features), if any.
+Training uses single-sample stochastic Pegasos. At iteration $t$, one
+training example is sampled using a fixed random seed and the learning
+rate is
+\begin{equation}
+  \eta_t=\frac{1}{\lambda t}.
+\end{equation}
+The weight vector is always shrunk by $1-\eta_t\lambda$. If the sampled
+margin $y_i(\mathbf{w}^{\top}\mathbf{x}_i+b)$ is below one, the update is
+\begin{align}
+  \mathbf{w} &\leftarrow
+  (1-\eta_t\lambda)\mathbf{w}+\eta_t y_i\mathbf{x}_i,\\
+  b &\leftarrow b+\eta_t y_i.
+\end{align}
+Otherwise, only the weight shrinkage is applied and $b$ is unchanged.
+The bias is not included in the regularisation term. Inputs are required
+to be numeric and standardised before reaching the SVM module.
+
+The decision function is $f(\mathbf{x})=\mathbf{w}^{\top}\mathbf{x}+b$.
+Samples satisfying $y_i f(\mathbf{x}_i)\leq 1$ are reported as support or
+margin-violating samples, and the full geometric margin width is reported
+as $2/\lVert\mathbf{w}\rVert_2$.
+
+For a non-linear extension, we approximate the RBF kernel with random
+Fourier features (RFF)~\cite{rahimi2007}:
+\begin{equation}
+  \phi(\mathbf{x})=
+  \sqrt{\frac{2}{D}}
+  \left[
+  \cos(\boldsymbol{\omega}_1^{\top}\mathbf{x}+b_1),\ldots,
+  \cos(\boldsymbol{\omega}_D^{\top}\mathbf{x}+b_D)
+  \right].
+\end{equation}
+Each $\boldsymbol{\omega}_j$ is sampled from
+$\mathcal{N}(\mathbf{0},2\gamma\mathbf{I})$, while each phase offset $b_j$
+is sampled uniformly from $[0,2\pi]$. The mapping is fitted only on the
+training data; validation and test data reuse exactly the same frequencies
+and offsets. Linear Pegasos is then trained in the transformed space.
+The number of components $D$ trades approximation quality against
+computational cost, while $\gamma$ controls the locality and smoothness of
+the approximated RBF kernel.
 
 \section{Experimental Setup}
 Metrics (RMSE/MAE/$R^2$ for regression; precision/recall/F1/AUC for
 classification), hyperparameter search protocol, seeds, and the
 scikit-learn baselines you compared against (with matched settings).
+
+\paragraph{SVM protocol.}
+The training split fits every candidate model, the validation split selects
+hyperparameters using classification F1, and the test split is evaluated
+exactly once after model selection. The linear search uses
+$\lambda\in\{10^{-5},10^{-4},10^{-3},10^{-2},10^{-1}\}$; validation-score
+ties prefer the larger $\lambda$ to favour stronger regularisation. Using
+the selected $\lambda$, the RFF search evaluates
+$\gamma\in\{0.01,0.1,1.0,10.0\}$; ties prefer the smaller $\gamma$. The full
+experiment uses $D=256$ RFF components and $20{,}000$ Pegasos iterations.
+All random seeds are fixed for reproducibility. The smaller
+\texttt{fast=True} configuration is used only for development and testing,
+not for final reported results. For each candidate, the experiment records
+F1, final objective loss, weight norm, margin width, support count, and fit
+time.
+
+% TODO(data-ready): insert selected lambda, gamma, validation F1, test F1,
+% AUC, timing, support count, and figure references from the real dataset run.
 
 \section{Results}
 Lead with a results table; back every claim with a number or figure.
@@ -178,6 +239,12 @@ you built on. (Required.)
 S.~Shalev-Shwartz, Y.~Singer, N.~Srebro, and A.~Cotter,
 ``Pegasos: primal estimated sub-gradient solver for SVM,''
 \emph{Mathematical Programming}, vol.~127, no.~1, pp.~3--30, 2011.
+
+\bibitem{rahimi2007}
+A.~Rahimi and B.~Recht,
+``Random features for large-scale kernel machines,''
+in \emph{Advances in Neural Information Processing Systems 20},
+pp.~1177--1184, 2007.
 \end{thebibliography}
 
 \end{document}
