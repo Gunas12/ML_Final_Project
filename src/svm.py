@@ -298,3 +298,59 @@ class PegasosSVM:
         # A point exactly on the hyperplane is assigned to the positive class.
         class_indices = (margins >= 0.0).astype(int)
         return self.classes_[class_indices]
+
+    def weight_norm(self) -> float:
+        """Return the Euclidean norm of the fitted weight vector."""
+        if self.w is None:
+            raise RuntimeError("PegasosSVM must be fitted before diagnostics")
+        return float(np.linalg.norm(self.w))
+
+    def margin_width(self) -> float:
+        """Return the full geometric margin width, ``2 / ||w||``."""
+        norm = self.weight_norm()
+        if norm == 0.0:
+            return np.inf
+        return float(2.0 / norm)
+
+    def support_mask(self, X, y):
+        """Return a mask for samples on or inside the fitted SVM margin."""
+        if self.w is None or self.classes_ is None or len(self.classes_) != 2:
+            raise RuntimeError("PegasosSVM must be fitted before diagnostics")
+
+        try:
+            X = np.asarray(X, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("X must contain numeric values") from exc
+        y = np.asarray(y)
+
+        if X.ndim != 2:
+            raise ValueError("X must be a two-dimensional feature matrix")
+        if y.ndim != 1:
+            raise ValueError("y must be a one-dimensional label array")
+        if X.shape[0] != y.shape[0]:
+            raise ValueError(
+                "X and y must contain the same number of samples "
+                f"({X.shape[0]} != {y.shape[0]})"
+            )
+        if X.shape[1] != len(self.w):
+            raise ValueError(
+                "X has a different number of features than the fitted model "
+                f"({X.shape[1]} != {len(self.w)})"
+            )
+        if not np.all(np.isfinite(X)):
+            raise ValueError("X must not contain NaN or infinite values")
+        if self._has_non_finite_labels(y):
+            raise ValueError("y must not contain NaN or infinite values")
+
+        negative = y == self.classes_[0]
+        positive = y == self.classes_[1]
+        if not np.all(negative | positive):
+            invalid_labels = np.unique(y[~(negative | positive)])
+            raise ValueError(
+                "y contains labels not seen during fit: "
+                f"{invalid_labels.tolist()}"
+            )
+
+        y_pm1 = np.where(positive, 1.0, -1.0)
+        margins = y_pm1 * (X @ self.w + self.b)
+        return margins <= 1.0

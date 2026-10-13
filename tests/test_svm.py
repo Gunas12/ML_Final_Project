@@ -280,5 +280,89 @@ class TestPegasosSVMFit(unittest.TestCase):
                     model.fit(self.X, self.y)
 
 
+class TestPegasosSVMDiagnostics(unittest.TestCase):
+    def test_weight_norm_and_margin_width_for_known_weights(self):
+        model = PegasosSVM()
+        model.w = np.array([3.0, 4.0])
+
+        self.assertEqual(model.weight_norm(), 5.0)
+        self.assertEqual(model.margin_width(), 0.4)
+
+    def test_zero_weights_have_infinite_margin_width(self):
+        model = PegasosSVM()
+        model.w = np.zeros(3)
+
+        self.assertTrue(np.isinf(model.margin_width()))
+
+    def test_support_mask_matches_hand_calculated_margins(self):
+        model = PegasosSVM()
+        model._to_pm1([0, 1])
+        model.w = np.array([1.0, 0.0])
+        model.b = 0.0
+        X = np.array([[2.0, 0.0], [1.0, 0.0], [-2.0, 0.0], [-0.5, 0.0]])
+        y = np.array([1, 1, 0, 0])
+
+        mask = model.support_mask(X, y)
+
+        self.assertEqual(mask.dtype, np.bool_)
+        np.testing.assert_array_equal(mask, [False, True, False, True])
+
+    def test_support_mask_uses_original_string_label_mapping(self):
+        model = PegasosSVM()
+        model._to_pm1(["standard", "premium"])
+        model.w = np.array([1.0, 0.0])
+        model.b = 0.0
+        X = np.array([[2.0, 0.0], [1.0, 0.0], [-2.0, 0.0], [-0.5, 0.0]])
+        y = np.array(["standard", "standard", "premium", "premium"])
+
+        mask = model.support_mask(X, y)
+
+        np.testing.assert_array_equal(mask, [False, True, False, True])
+
+    def test_support_mask_rejects_invalid_labels_dimensions_and_sample_count(self):
+        model = PegasosSVM()
+        model._to_pm1([0, 1])
+        model.w = np.array([1.0, 0.0])
+        invalid_inputs = [
+            (np.ones((2, 2)), np.array([0, 2]), "not seen during fit"),
+            (np.ones(2), np.array([0, 1]), "two-dimensional"),
+            (np.ones((2, 2)), np.array([[0], [1]]), "one-dimensional"),
+            (np.ones((3, 2)), np.array([0, 1]), "same number"),
+            (np.ones((2, 3)), np.array([0, 1]), "number of features"),
+            (np.array([[np.inf, 0.0], [0.0, 0.0]]), np.array([0, 1]), "NaN"),
+            (np.ones((2, 2)), np.array([0.0, np.inf]), "NaN"),
+        ]
+
+        for X, y, message in invalid_inputs:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    model.support_mask(X, y)
+
+    def test_unfitted_model_rejects_diagnostics(self):
+        model = PegasosSVM()
+        diagnostics = [
+            model.weight_norm,
+            model.margin_width,
+            lambda: model.support_mask([[0.0]], [0]),
+        ]
+
+        for diagnostic in diagnostics:
+            with self.subTest(diagnostic=diagnostic):
+                with self.assertRaisesRegex(RuntimeError, "fitted"):
+                    diagnostic()
+
+    def test_support_mask_does_not_change_label_mapping(self):
+        model = PegasosSVM()
+        model._to_pm1(["standard", "premium"])
+        model.w = np.array([1.0])
+        classes_before = model.classes_.copy()
+        mapping_before = model.class_to_pm1_.copy()
+
+        model.support_mask([[1.0], [-1.0]], ["standard", "premium"])
+
+        np.testing.assert_array_equal(model.classes_, classes_before)
+        self.assertEqual(model.class_to_pm1_, mapping_before)
+
+
 if __name__ == "__main__":
     unittest.main()
