@@ -28,6 +28,40 @@ scikit-learn is for the comparison baselines (and the optional bonuses)
 only. For the SVM you do **not** need a QP/SMO solver — use the
 **Pegasos** sub-gradient method (see the statement and `src/svm.py`).
 
+## From-scratch SVM
+
+`src/svm.py` contains the linear `PegasosSVM` classifier and the
+`RandomFourierFeatures` RBF-kernel approximation. `src/svm_experiments.py`
+performs validation-only hyperparameter tuning, selects between the linear
+and RFF models, and evaluates the test split exactly once after selection.
+Input splits must already be cleaned, numeric, and standardized.
+
+```python
+from src.svm_experiments import run
+
+results = run(
+    (X_train, y_train, X_val, y_val, X_test, y_test),
+    out_dir="report/figures",
+    fast=False,
+    random_state=42,
+)
+```
+
+The full run generates:
+
+- `fig_svm_convergence.png`
+- `fig_svm_lambda_sweep.png`
+- `fig_svm_gamma_sweep.png`
+
+Run the SVM tests with:
+
+```powershell
+python -m pytest tests/test_svm.py tests/test_svm_experiments.py -q
+```
+
+Real bina.az validation and test metrics will be added after the completed
+data pipeline is integrated.
+
 ## Repo layout
 ```
 .
@@ -40,6 +74,7 @@ only. For the SVM you do **not** need a QP/SMO solver — use the
 │   ├── data_prep.py        #   loading, cleaning, split, tier label
 │   ├── decision_tree.py    #   DecisionTree (Gini/entropy/MSE)
 │   ├── svm.py              #   PegasosSVM (hinge-loss sub-gradient)
+│   ├── svm_experiments.py  #   validation-only SVM/RFF model selection
 │   ├── evaluate.py         #   metrics + comparison helpers
 │   └── run_all.py          #   ONE command reproduces every number/figure
 ├── report/                 # IEEE report (self-contained, no IEEEtran.cls)
