@@ -59,8 +59,18 @@ Run the SVM tests with:
 python -m pytest tests/test_svm.py tests/test_svm_experiments.py -q
 ```
 
-Real bina.az validation and test metrics will be added after the completed
-data pipeline is integrated.
+The integrated pipeline is available with:
+
+```powershell
+python -m src.run_all
+```
+
+It loads and cleans the CSV, excludes identifiers and price-derived columns,
+one-hot encodes categorical features, makes deterministic stratified
+train/validation/test splits, and fits the from-scratch NumPy models alongside
+scikit-learn baselines. The premium threshold and all SVM scaling statistics
+are learned from the training split only. Final metrics and comparison figures
+are printed and saved under `report/figures/`.
 
 ## Repo layout
 ```
@@ -74,6 +84,7 @@ data pipeline is integrated.
 │   ├── data_prep.py        #   loading, cleaning, split, tier label
 │   ├── decision_tree.py    #   DecisionTree (Gini/entropy/MSE)
 │   ├── svm.py              #   PegasosSVM (hinge-loss sub-gradient)
+│   ├── baselines.py        #   scikit-learn comparison models
 │   ├── svm_experiments.py  #   validation-only SVM/RFF model selection
 │   ├── evaluate.py         #   metrics + comparison helpers
 │   └── run_all.py          #   ONE command reproduces every number/figure
