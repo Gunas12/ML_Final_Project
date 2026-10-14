@@ -7,13 +7,16 @@ plus a short per-member paragraph.
 ## Team
 | Member (Surname, Name) | GitHub handle | Main responsibilities |
 |------------------------|---------------|-----------------------|
-| ---                    | ---           | ---                   |
+| Mursalov, Punhan       | —             | Data preparation, leakage cleaning, EDA, documentation |
 | ---                    | ---           | ---                   |
 | ---                    | ---           | ---                   |
 
 ## Per-member summary
-**Surname, Name —** 2–4 sentences: what you designed, implemented, wrote,
-and debugged. Reference concrete files/PRs/commits.
+**Mursalov, Punhan —** Implemented the data loading, cleaning, feature
+construction, tier-label, stratified split, and train-only standardization
+workflow in `src/data_prep.py`. Added exploratory plots in `src/eda.py`,
+data-preparation tests, and documentation of leakage exclusions and cleaning
+choices in `docs/data_decisions.md`, `data/README.md`, and `README.md`.
 
 **Surname, Name —** ...
 
@@ -23,8 +26,10 @@ and debugged. Reference concrete files/PRs/commits.
 Give an approximate percentage per member (should sum to ~100%) and note any
 imbalance and why.
 
-| Member | Approx. % |
-|--------|-----------|
-| ---    | ---       |
-| ---    | ---       |
-| ---    | ---       |
+| Member          | Approx. % |
+|-----------------|-----------|
+| Mursalov, Punhan | 25%       |
+| ---             | ---       |
+| ---             | ---       |
+
+Signed: Punhan Mursalov, 14 Oct 2026

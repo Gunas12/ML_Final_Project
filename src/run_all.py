@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 
-from . import data_prep, evaluate
+from . import data_prep, eda, evaluate
 from .baselines import fit_baselines
 from .decision_tree import DecisionTree
 from .svm import PegasosSVM
@@ -81,6 +81,10 @@ def main() -> dict:
     X, y_price, feature_names = data_prep.make_features(cleaned)
     X_train, y_train, X_val, y_val, X_test, y_test = (
         data_prep.train_val_test_split(X, y_price, seed=SEED)
+    )
+    eda_figures = eda.run(
+        (X_train, y_train, X_val, y_val, X_test, y_test),
+        out_dir=Path("report") / "figures",
     )
     y_tier_train, tier_threshold = data_prep.make_tier_label(y_train)
     y_tier_val, _ = data_prep.make_tier_label(y_val, threshold=tier_threshold)
@@ -202,6 +206,7 @@ def main() -> dict:
         classification_results,
         svm,
     )
+    figures.update(eda_figures)
     return {
         "seed": SEED,
         "feature_names": feature_names,

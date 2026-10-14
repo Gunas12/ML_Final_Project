@@ -1,109 +1,97 @@
-# MLE-AI-201 Machine Learning — Final Project (Starter Pack)
+# MLE-AI-201 Machine Learning Final Project
 
-Build **two models from scratch** (a decision tree and an SVM) on the
-**bina.az** real-estate dataset, then benchmark honestly against
-scikit-learn. Read the full brief in the project statement PDF handed out
-with this pack.
+This project predicts sale prices and derived price tiers for listings from
+the bina.az real-estate dataset. It implements a decision tree and a Pegasos
+support-vector machine in NumPy and compares them with scikit-learn baselines.
 
-- **Released:** Sun 04 Oct 2026
-- **Due:** **Sun 18 Oct 2026, 23:59 (Baku)** — two weeks, no late submissions.
-- **Demo:** defended in the session after the deadline.
+## Tasks
 
-## What you submit (on Moodle)
-Exactly **three** things; **one member submits** for the whole team:
-1. **GitHub link** to your repo (tagged `v1.0-final`).
-2. **Report PDF** (IEEE two-column — use `report/report.tex`).
-3. **Slides PDF**.
+- **Regression:** predict the listing price in AZN.
+- **Classification:** predict standard (`0`) versus premium (`1`), where
+  premium means the price is strictly above the median price in the training
+  split. The training threshold is reused for validation and test labels.
 
-Keep `contribution_report.md` in the repo root (checked at the demo).
+The models are evaluated with a deterministic 70% / 15% / 15%
+train/validation/test split. The split, SVM standardization, and model
+experiments use random seed **42**.
 
-## The two tasks
-- **Task A — Regression:** predict `price` (consider `log(price)`).
-- **Task B — Classification:** predict a derived **price tier**
-  (premium vs standard, median split on the training set).
+## Dataset
 
-## Golden rule
-Your **decision tree** and your **SVM** must be **your own NumPy code**.
-scikit-learn is for the comparison baselines (and the optional bonuses)
-only. For the SVM you do **not** need a QP/SMO solver — use the
-**Pegasos** sub-gradient method (see the statement and `src/svm.py`).
+Download Kaggle's **binaaz-sale-project** dataset by `sehriyarmemmedli` and
+place the extracted CSV at `data/bina_az_sale.csv`. Dataset details and
+version/date information are maintained in [data/README.md](data/README.md).
+The raw dataset is excluded from version control.
 
-## From-scratch SVM
+Cleaning, missing-value handling, outlier policy, feature selection, and
+leakage exclusions are documented in
+[docs/data_decisions.md](docs/data_decisions.md). In particular,
+`unit_price` and `total_price` are target-derived and are excluded from model
+features.
 
-`src/svm.py` contains the linear `PegasosSVM` classifier and the
-`RandomFourierFeatures` RBF-kernel approximation. `src/svm_experiments.py`
-performs validation-only hyperparameter tuning, selects between the linear
-and RFF models, and evaluates the test split exactly once after selection.
-Input splits must already be cleaned, numeric, and standardized.
+## Setup
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+## Running
+
+Run the integrated baseline and from-scratch model pipeline:
+
+```powershell
+python -m src.run_all
+```
+
+Generate exploratory figures from prepared splits:
 
 ```python
-from src.svm_experiments import run
+from src.data_prep import clean, load_raw, make_features, train_val_test_split
+from src.eda import run
 
-results = run(
-    (X_train, y_train, X_val, y_val, X_test, y_test),
-    out_dir="report/figures",
-    fast=False,
-    random_state=42,
-)
+cleaned = clean(load_raw())
+X, y_price, feature_names = make_features(cleaned)
+splits = train_val_test_split(X, y_price, seed=42)
+figures = run(splits, out_dir="report/figures")
 ```
 
-The full run generates:
+The EDA output comprises price and log-price distributions, area versus
+price, room counts, regional and coordinate effects, and the training price
+tier balance. Figures are named `fig_eda_*.png`.
 
-- `fig_svm_convergence.png`
-- `fig_svm_lambda_sweep.png`
-- `fig_svm_gamma_sweep.png`
-
-Run the SVM tests with:
+Run the focused preparation and model tests:
 
 ```powershell
-python -m pytest tests/test_svm.py tests/test_svm_experiments.py -q
+python -m pytest tests/test_data_prep.py tests/test_eda.py tests/test_decision_tree.py tests/test_svm.py tests/test_svm_experiments.py -q
 ```
 
-The integrated pipeline is available with:
+## Repository structure
 
-```powershell
-python -m src.run_all
-```
-
-It loads and cleans the CSV, excludes identifiers and price-derived columns,
-one-hot encodes categorical features, makes deterministic stratified
-train/validation/test splits, and fits the from-scratch NumPy models alongside
-scikit-learn baselines. The premium threshold and all SVM scaling statistics
-are learned from the training split only. Final metrics and comparison figures
-are printed and saved under `report/figures/`.
-
-## Repo layout
-```
+```text
 .
-├── README.md               # this file
-├── requirements.txt        # pin your versions
-├── .gitignore
-├── contribution_report.md  # who did what (keep in repo root)
-├── data/                   # dataset lives here (not committed — see data/README.md)
-├── src/                    # YOUR from-scratch code
-│   ├── data_prep.py        #   loading, cleaning, split, tier label
-│   ├── decision_tree.py    #   DecisionTree (Gini/entropy/MSE)
-│   ├── svm.py              #   PegasosSVM (hinge-loss sub-gradient)
-│   ├── baselines.py        #   scikit-learn comparison models
-│   ├── svm_experiments.py  #   validation-only SVM/RFF model selection
-│   ├── evaluate.py         #   metrics + comparison helpers
-│   └── run_all.py          #   ONE command reproduces every number/figure
-├── report/                 # IEEE report (self-contained, no IEEEtran.cls)
-│   ├── report.tex
-│   └── figures/
-└── presentation/           # your slides PDF
+├── data/
+│   └── README.md
+├── docs/
+│   └── data_decisions.md
+├── presentation/
+├── report/
+│   ├── figures/
+│   └── report.tex
+├── src/
+│   ├── baselines.py
+│   ├── data_prep.py
+│   ├── decision_tree.py
+│   ├── eda.py
+│   ├── evaluate.py
+│   ├── run_all.py
+│   ├── svm.py
+│   ├── svm_experiments.py
+│   └── tree_experiments.py
+├── tests/
+├── contribution_report.md
+└── requirements.txt
 ```
 
-## Reproducibility (graded)
-- Pin dependencies in `requirements.txt`; fix all random seeds.
-- `python -m src.run_all` must reproduce **every** headline number and
-  figure from a clean checkout.
-- Do **not** commit the raw data archive (see `.gitignore`).
-
-## Quick start
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# put the dataset in data/ (see data/README.md), then:
-python -m src.run_all
-```
+The LaTeX report source is [report/report.tex](report/report.tex); keep the
+team contributions in [contribution_report.md](contribution_report.md).

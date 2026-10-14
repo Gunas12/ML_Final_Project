@@ -87,16 +87,51 @@ inline list. What is the task, why does it matter, and what did your
 team do? Keep background brief; cite sources like this~\cite{pegasos}.
 
 \section{Related Work / Background}
-Briefly place your work in context: decision trees (impurity, information
-gain), the soft-margin SVM and the hinge-loss primal, and the Pegasos
-sub-gradient solver you used~\cite{pegasos}. One or two short paragraphs.
+Classification and regression trees recursively partition the feature
+space using threshold rules. At each node, the split is selected to reduce
+task-specific impurity: Gini impurity or entropy for classification and
+mean-squared error for regression~\cite{breiman1984}. This produces
+interpretable piecewise-constant predictions, while tree depth and minimum
+leaf size control the bias--variance trade-off. Our NumPy implementation
+uses these criteria for the binary price-tier and continuous price tasks.
+
+Support-vector machines separate classes with a maximum-margin boundary;
+the soft-margin formulation trades margin width against hinge-loss
+violations~\cite{cortes1995}. Pegasos optimizes the primal objective with
+stochastic sub-gradient updates and a learning rate inversely proportional
+to iteration and regularization strength~\cite{pegasos}. For non-linear
+decision boundaries, random Fourier features approximate the RBF kernel
+with an explicit finite-dimensional mapping~\cite{rahimi2007}. These
+methods motivate our from-scratch Pegasos implementation and optional RFF
+experiments.
 
 \section{Data and Preprocessing}
-Describe the bina.az dataset: size, key columns, and the cleaning you
-did (currency, types, missing values, duplicates, outliers). State the
-two tasks (price regression; price-tier classification), how you derived
-the tier label, and your train/validation/test split. \textbf{Name the
-leakage columns you removed and why.}
+We use the Kaggle bina.az sale-listing dataset, whose supplied CSV contains
+100,775 records and 51 columns. The target is \texttt{price} in Azerbaijani
+manat (AZN); property fields include location, latitude and longitude, category,
+room count, area, floor, repair status, title deed, and mortgage status.
+The cleaned dataset retains all 100,775 records: invalid or non-positive
+prices and non-AZN listings are excluded by the cleaning rules, and exact
+duplicates are removed, but none of these filters removed a record from the
+provided copy. The data records AZN currency. Numeric area and room fields
+are parsed from their source columns; floor and total building floors are
+parsed from the floor field. Missing numeric features are imputed with
+training-set medians, and missing categories are represented by an
+\texttt{Unknown} category before one-hot encoding. We retain valid
+high-price listings rather than applying an arbitrary outlier cap.
+
+We exclude listing identifiers, URLs, free-text fields, scrape timestamps,
+view counts, and currency labels from the model matrix. In particular,
+\texttt{unit\_price} and \texttt{total\_price} are removed because they
+are price-derived and would leak the regression target into both tasks.
+Task A predicts price. For Task B, premium is label 1 only when price is
+strictly greater than the median training price; ties are standard (0), and
+the same training-only threshold labels validation and test records. The
+fixed-seed-42 split is stratified by price tier and has 70\% training, 15\%
+validation, and 15\% test records (70,542, 15,116, and 15,117 listings,
+respectively). Standardization parameters are also fitted on training
+features only. The training tier balance is 50.1\% standard and 49.9\%
+premium.
 
 \begin{table}[t]
   \centering
@@ -106,10 +141,10 @@ leakage columns you removed and why.}
     \toprule
     Property & Value \\
     \midrule
-    Rows (after cleaning)       & --- \\
-    Features used               & --- \\
-    Train / Val / Test split    & --- / --- / --- \\
-    Price-tier balance (\%)     & --- \\
+    Rows (after cleaning)       & 100,775 \\
+    Features used               & 175 \\
+    Train / Val / Test split    & 70 / 15 / 15\% \\
+    Tier balance (\%)            & 50.1 / 49.9 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -235,6 +270,16 @@ you built on. (Required.)
 
 % =====================================================================
 \begin{thebibliography}{9}
+\bibitem{breiman1984}
+L.~Breiman, J.~H.~Friedman, R.~A.~Olshen, and C.~J.~Stone,
+\emph{Classification and Regression Trees}.
+Wadsworth, 1984.
+
+\bibitem{cortes1995}
+C.~Cortes and V.~Vapnik,
+``Support-vector networks,''
+\emph{Machine Learning}, vol.~20, pp.~273--297, 1995.
+
 \bibitem{pegasos}
 S.~Shalev-Shwartz, Y.~Singer, N.~Srebro, and A.~Cotter,
 ``Pegasos: primal estimated sub-gradient solver for SVM,''
