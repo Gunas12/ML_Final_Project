@@ -122,6 +122,62 @@ def roc_auc(y_true, scores) -> float:
     )
 
 
+def _binary_scores(y_true, scores):
+    """Validate (y_true, scores) and return (is_positive, scores) arrays."""
+    actual = np.asarray(y_true)
+    values = np.asarray(scores, dtype=float)
+    if actual.ndim != 1 or values.ndim != 1:
+        raise ValueError("y_true and scores must be one-dimensional")
+    if actual.size == 0 or actual.size != values.size:
+        raise ValueError("y_true and scores must have the same non-zero length")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("scores must not contain NaN or infinite values")
+    labels = np.unique(actual)
+    if labels.size != 2:
+        raise ValueError("both classes must be present")
+    positive = 1 if 1 in labels else labels[-1]
+    return actual == positive, values
+
+
+def _cumulative_counts(is_positive, values):
+    """True/false positive counts at every DISTINCT score threshold.
+
+    Samples are sorted by descending score; a threshold may only sit between
+    two different score values, so tied scores are never split.
+    """
+    order = np.argsort(-values, kind="mergesort")
+    sorted_values = values[order]
+    sorted_positive = is_positive[order]
+    distinct = np.where(np.diff(sorted_values))[0]
+    last = np.r_[distinct, sorted_values.size - 1]
+    true_positives = np.cumsum(sorted_positive)[last].astype(float)
+    false_positives = (1 + last) - true_positives
+    return true_positives, false_positives, sorted_values[last]
+
+
+def roc_curve(y_true, scores):
+    """Return (fpr, tpr, thresholds) of the ROC curve, starting at (0, 0)."""
+    is_positive, values = _binary_scores(y_true, scores)
+    tp, fp, thresholds = _cumulative_counts(is_positive, values)
+    tpr = np.r_[0.0, tp / tp[-1]]
+    fpr = np.r_[0.0, fp / fp[-1]]
+    return fpr, tpr, np.r_[np.inf, thresholds]
+
+
+def average_precision(y_true, scores) -> float:
+    """PR-AUC as average precision: AP = sum_n (R_n - R_{n-1}) * P_n.
+
+    This is the step-wise (non-interpolated) area under the precision-recall
+    curve, the same definition scikit-learn uses, and is the more informative
+    summary when the positive class is rare.
+    """
+    is_positive, values = _binary_scores(y_true, scores)
+    tp, fp, _ = _cumulative_counts(is_positive, values)
+    precision = tp / (tp + fp)
+    recall = tp / tp[-1]
+    return float(np.sum(np.diff(np.r_[0.0, recall]) * precision))
+
+
 def compare(name_to_metrics: dict) -> None:
     if not name_to_metrics:
         raise ValueError("name_to_metrics must not be empty")

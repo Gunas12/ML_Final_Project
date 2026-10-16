@@ -166,3 +166,40 @@ def test_timeit_returns_result_and_nonnegative_seconds():
     result, seconds = ev.timeit(sum, [1, 2, 3])
     assert result == 6
     assert seconds >= 0.0
+
+
+# --------------------------------------------------------------------------
+# PR-AUC (average precision) and ROC curve
+# --------------------------------------------------------------------------
+def test_average_precision_matches_sklearn(classification_triple):
+    y_true, _, scores = classification_triple
+    assert ev.average_precision(y_true, scores) == pytest.approx(
+        skm.average_precision_score(y_true, scores)
+    )
+
+
+def test_average_precision_handles_ties():
+    y_true = np.array([0, 0, 1, 1, 1, 0, 1, 0, 1, 1])
+    scores = np.array([0.1, 0.1, 0.5, 0.5, 0.9, 0.5, 0.5, 0.1, 0.9, 0.5])
+    assert ev.average_precision(y_true, scores) == pytest.approx(
+        skm.average_precision_score(y_true, scores)
+    )
+
+
+def test_average_precision_perfect_ranking_is_one():
+    assert ev.average_precision([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9]) == 1.0
+
+
+def test_roc_curve_matches_sklearn(classification_triple):
+    y_true, _, scores = classification_triple
+    fpr, tpr, _ = ev.roc_curve(y_true, scores)
+    sk_fpr, sk_tpr, _ = skm.roc_curve(y_true, scores, drop_intermediate=False)
+    np.testing.assert_allclose(fpr, sk_fpr)
+    np.testing.assert_allclose(tpr, sk_tpr)
+
+
+def test_area_under_roc_curve_equals_roc_auc(classification_triple):
+    y_true, _, scores = classification_triple
+    fpr, tpr, _ = ev.roc_curve(y_true, scores)
+    area = float(np.sum(np.diff(fpr) * (tpr[1:] + tpr[:-1]) / 2.0))
+    assert area == pytest.approx(ev.roc_auc(y_true, scores))
