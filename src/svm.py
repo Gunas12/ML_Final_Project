@@ -29,6 +29,7 @@ Remember to STANDARDIZE features (see data_prep.standardize) before training.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 class RandomFourierFeatures:
@@ -242,24 +243,17 @@ class PegasosSVM:
 
     @staticmethod
     def _has_non_finite_labels(y) -> bool:
-        """Return whether a label array contains NaN, infinity, NaT, or None."""
-        if y.dtype.kind in "fc":
-            return not bool(np.all(np.isfinite(y)))
-        if y.dtype.kind in "mM":
-            return bool(np.any(np.isnat(y)))
-        if y.dtype.kind != "O":
-            return False
-
-        for label in y:
-            if label is None:
+        """Return whether a label array contains NaN, infinity, NaT, or missing values."""
+        values = np.asarray(y, dtype=object)
+        for label in values.ravel():
+            if label is None or pd.isna(label):
                 return True
             try:
-                is_finite = np.isfinite(label)
-                if np.ndim(is_finite) == 0 and not bool(is_finite):
-                    return True
+                candidate = float(label)
             except (TypeError, ValueError):
-                # Ordinary object/string labels do not define finiteness.
                 continue
+            if not np.isfinite(candidate):
+                return True
         return False
 
     def _objective(self, X, y_pm1, lambda_: float) -> float:

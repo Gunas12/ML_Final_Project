@@ -110,7 +110,8 @@ def clean(df):
     valid_price &= cleaned["price"] > 0
     for currency_column in ("currency_x", "currency_y", "currency"):
         if currency_column in cleaned:
-            valid_price &= cleaned[currency_column].fillna("").str.upper().eq("AZN")
+            currency_values = cleaned[currency_column].astype("string").str.upper().fillna("")
+            valid_price &= currency_values.eq("AZN")
             break
     cleaned = cleaned.loc[valid_price].drop_duplicates()
 

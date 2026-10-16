@@ -10,6 +10,7 @@ from time import perf_counter
 
 import matplotlib
 import numpy as np
+import pandas as pd
 
 from .svm import PegasosSVM, RandomFourierFeatures
 
@@ -19,22 +20,16 @@ import matplotlib.pyplot as plt
 
 def _has_non_finite_values(values) -> bool:
     """Return whether numeric/object labels contain missing or infinite values."""
-    if values.dtype.kind in "fc":
-        return not bool(np.all(np.isfinite(values)))
-    if values.dtype.kind in "mM":
-        return bool(np.any(np.isnat(values)))
-    if values.dtype.kind != "O":
-        return False
-
-    for value in values:
-        if value is None:
+    values = np.asarray(values, dtype=object)
+    for value in values.ravel():
+        if value is None or pd.isna(value):
             return True
         try:
-            finite = np.isfinite(value)
-            if np.ndim(finite) == 0 and not bool(finite):
-                return True
+            numeric = float(value)
         except (TypeError, ValueError):
             continue
+        if not np.isfinite(numeric):
+            return True
     return False
 
 

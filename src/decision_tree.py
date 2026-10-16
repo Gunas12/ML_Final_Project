@@ -25,6 +25,7 @@ Conventions
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 
 class Node:
@@ -87,6 +88,36 @@ class DecisionTree:
         if self.min_impurity_decrease < 0:
             raise ValueError("min_impurity_decrease must be >= 0")
 
+    @staticmethod
+    def _validate_target(y, *, task: str):
+        values = np.asarray(y)
+        if values.ndim != 1:
+            raise ValueError("y must be a one-dimensional array")
+        if values.size == 0:
+            raise ValueError("y must not be empty")
+        if np.any(pd.isna(values)):
+            raise ValueError("y must not contain NaN or missing values")
+        if task == "regression":
+            try:
+                values = values.astype(float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("y must be numeric for regression") from exc
+            if not np.all(np.isfinite(values)):
+                raise ValueError("y must not contain NaN or infinite values")
+            return values
+        try:
+            numeric = values.astype(float)
+        except (TypeError, ValueError):
+            numeric = None
+        else:
+            if not np.all(np.isfinite(numeric)):
+                raise ValueError("classification labels must be finite")
+        try:
+            np.unique(values)
+        except TypeError as exc:
+            raise ValueError("classification labels must be mutually comparable") from exc
+        return values
+
     # --- impurity -----------------------------------------------------------
     def _impurity(self, y) -> float:
         """
@@ -95,7 +126,7 @@ class DecisionTree:
           entropy  : - sum_k p_k * log2(p_k)      (0*log0 treated as 0)
           mse      : mean((y - mean(y))^2)        (variance)
         """
-        y = np.asarray(y)
+        y = self._validate_target(y, task=self.task)
         if y.size == 0:
             return 0.0
         if self.task == "regression":
@@ -136,7 +167,7 @@ class DecisionTree:
         Ties are broken deterministically: lowest feature index, then lowest threshold.
         """
         X = np.asarray(X, dtype=float)
-        y = np.asarray(y)
+        y = self._validate_target(y, task=self.task)
         n, n_features = X.shape
         if n < 2:
             return None
@@ -252,7 +283,7 @@ class DecisionTree:
     def fit(self, X, y):
         self._check_params()
         X = np.asarray(X, dtype=float)
-        y = np.asarray(y)
+        y = self._validate_target(y, task=self.task)
         if X.ndim != 2:
             raise ValueError("X must be 2-D (n_samples, n_features)")
         if X.shape[0] != y.shape[0]:

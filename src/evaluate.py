@@ -3,6 +3,12 @@ from __future__ import annotations
 from time import perf_counter
 
 import numpy as np
+import pandas as pd
+
+
+def _contains_missing(values):
+    array = np.asarray(values, dtype=object)
+    return bool(np.any(pd.isna(array)))
 
 
 def _paired_vectors(y_true, y_pred):
@@ -12,6 +18,8 @@ def _paired_vectors(y_true, y_pred):
         raise ValueError("y_true and y_pred must be one-dimensional")
     if actual.size == 0 or actual.size != predicted.size:
         raise ValueError("y_true and y_pred must have the same non-zero length")
+    if _contains_missing(actual) or _contains_missing(predicted):
+        raise ValueError("y_true and y_pred must not contain missing values")
     return actual, predicted
 
 
@@ -96,6 +104,8 @@ def roc_auc(y_true, scores) -> float:
         raise ValueError("y_true and scores must be one-dimensional")
     if actual.size == 0 or actual.size != values.size:
         raise ValueError("y_true and scores must have the same non-zero length")
+    if _contains_missing(actual):
+        raise ValueError("y_true must not contain missing values")
     if not np.all(np.isfinite(values)):
         raise ValueError("scores must not contain NaN or infinite values")
     labels = np.unique(actual)
