@@ -239,6 +239,40 @@ def format_table(name_to_metrics: dict) -> str:
     return "\n".join(lines)
 
 
+def kfold_indices(n: int, k: int = 5, seed: int = 42):
+    """Shuffled K-fold split of range(n).
+
+    Returns a list of k (train_idx, val_idx) pairs. Every index appears in
+    exactly one validation fold; fold sizes differ by at most one.
+    """
+    if not 2 <= k <= n:
+        raise ValueError("k must satisfy 2 <= k <= n")
+    permutation = np.random.default_rng(seed).permutation(n)
+    folds = np.array_split(permutation, k)
+    return [
+        (np.concatenate([folds[j] for j in range(k) if j != i]), folds[i])
+        for i in range(k)
+    ]
+
+
+def stratified_kfold_indices(y, k: int = 5, seed: int = 42):
+    """K-fold split that keeps each class's share the same in every fold."""
+    labels = np.asarray(y)
+    if labels.ndim != 1 or labels.size < k or k < 2:
+        raise ValueError("y must be 1-D with at least k samples and k >= 2")
+    rng = np.random.default_rng(seed)
+    folds = [[] for _ in range(k)]
+    for cls in np.unique(labels):
+        members = rng.permutation(np.flatnonzero(labels == cls))
+        for i, part in enumerate(np.array_split(members, k)):
+            folds[i].append(part)
+    folds = [np.sort(np.concatenate(parts)) for parts in folds]
+    return [
+        (np.concatenate([folds[j] for j in range(k) if j != i]), folds[i])
+        for i in range(k)
+    ]
+
+
 def timeit(function, *args, **kwargs):
     start = perf_counter()
     result = function(*args, **kwargs)

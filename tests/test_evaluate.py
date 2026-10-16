@@ -203,3 +203,50 @@ def test_area_under_roc_curve_equals_roc_auc(classification_triple):
     fpr, tpr, _ = ev.roc_curve(y_true, scores)
     area = float(np.sum(np.diff(fpr) * (tpr[1:] + tpr[:-1]) / 2.0))
     assert area == pytest.approx(ev.roc_auc(y_true, scores))
+
+
+# --------------------------------------------------------------------------
+# K-fold index generators
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("n,k", [(10, 5), (103, 5), (7, 3), (20, 20)])
+def test_kfold_covers_every_sample_exactly_once(n, k):
+    folds = ev.kfold_indices(n, k, seed=42)
+    assert len(folds) == k
+    all_val = np.concatenate([val for _, val in folds])
+    np.testing.assert_array_equal(np.sort(all_val), np.arange(n))
+
+
+def test_kfold_train_and_val_are_disjoint_and_complete():
+    for train, val in ev.kfold_indices(57, 4, seed=1):
+        assert np.intersect1d(train, val).size == 0
+        assert train.size + val.size == 57
+
+
+def test_kfold_fold_sizes_differ_by_at_most_one():
+    sizes = [val.size for _, val in ev.kfold_indices(103, 5)]
+    assert max(sizes) - min(sizes) <= 1
+
+
+def test_kfold_is_deterministic_for_a_seed_and_changes_with_seed():
+    a = ev.kfold_indices(50, 5, seed=42)
+    b = ev.kfold_indices(50, 5, seed=42)
+    c = ev.kfold_indices(50, 5, seed=7)
+    for (_, va), (_, vb) in zip(a, b):
+        np.testing.assert_array_equal(va, vb)
+    assert any(not np.array_equal(va, vc) for (_, va), (_, vc) in zip(a, c))
+
+
+def test_kfold_rejects_bad_k():
+    with pytest.raises(ValueError):
+        ev.kfold_indices(10, 1)
+    with pytest.raises(ValueError):
+        ev.kfold_indices(3, 5)
+
+
+def test_stratified_kfold_covers_every_sample_once_and_keeps_ratio():
+    y = np.array([0] * 80 + [1] * 20)
+    folds = ev.stratified_kfold_indices(y, 5, seed=42)
+    all_val = np.concatenate([val for _, val in folds])
+    np.testing.assert_array_equal(np.sort(all_val), np.arange(100))
+    for _, val in folds:
+        assert y[val].mean() == pytest.approx(0.2)
