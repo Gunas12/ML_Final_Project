@@ -250,3 +250,120 @@ def test_stratified_kfold_covers_every_sample_once_and_keeps_ratio():
     np.testing.assert_array_equal(np.sort(all_val), np.arange(100))
     for _, val in folds:
         assert y[val].mean() == pytest.approx(0.2)
+
+
+# --------------------------------------------------------------------------
+# scoring bundles and cross_validate
+# --------------------------------------------------------------------------
+class _MeanRegressor:
+    """Trivial model that records how much data it was trained on."""
+
+    seen_train_sizes: list = []
+
+    def fit(self, X, y):
+        self.mean_ = float(np.mean(y))
+        _MeanRegressor.seen_train_sizes.append(len(y))
+        return self
+
+    def predict(self, X):
+        return np.full(len(X), self.mean_)
+
+
+class _ThresholdClassifier:
+    """Classifies by the sign of the first feature; exposes decision_function."""
+
+    def fit(self, X, y):
+        return self
+
+    def decision_function(self, X):
+        return X[:, 0]
+
+    def predict(self, X):
+        return (X[:, 0] > 0).astype(int)
+
+
+def test_score_regression_has_log_metrics():
+    y = np.array([100_000.0, 200_000.0, 400_000.0])
+    scores = ev.score_regression(y, y * 1.1)
+    assert set(scores) == {"RMSE", "MAE", "R2", "RMSE_log", "R2_log"}
+    assert scores["RMSE_log"] == pytest.approx(np.log(1.1))
+
+
+def test_score_regression_survives_nonpositive_predictions():
+    scores = ev.score_regression(np.array([10.0, 20.0]), np.array([-5.0, 0.0]))
+    assert np.isfinite(scores["RMSE_log"])
+
+
+def test_score_classification_matches_sklearn(classification_triple):
+    y_true, y_pred, scores = classification_triple
+    out = ev.score_classification(y_true, y_pred, scores)
+    assert out["ROC-AUC"] == pytest.approx(skm.roc_auc_score(y_true, scores))
+    assert out["PR-AUC"] == pytest.approx(
+        skm.average_precision_score(y_true, scores)
+    )
+    assert out["F1"] == pytest.approx(skm.f1_score(y_true, y_pred))
+
+
+def test_mean_std_uses_sample_std():
+    mean, std = ev.mean_std([{"a": 1.0}, {"a": 3.0}])
+    assert mean["a"] == pytest.approx(2.0)
+    assert std["a"] == pytest.approx(np.std([1.0, 3.0], ddof=1))
+
+
+def test_cross_validate_regression_structure_and_training_size():
+    X = RNG.normal(size=(100, 3))
+    y = X[:, 0] * 10 + 50
+    _MeanRegressor.seen_train_sizes = []
+    result = ev.cross_validate(_MeanRegressor, X, y, k=5, task="regression")
+    assert result["k"] == 5 and len(result["folds"]) == 5
+    assert _MeanRegressor.seen_train_sizes == [80] * 5   # 4/5 of the rows
+    for name in ("RMSE", "MAE", "R2"):
+        assert name in result["mean"] and name in result["std"]
+    assert result["fit_seconds"] >= 0 and result["predict_seconds"] >= 0
+
+
+def test_cross_validate_is_deterministic():
+    X = RNG.normal(size=(60, 2))
+    y = np.abs(X[:, 0]) + 5
+    a = ev.cross_validate(_MeanRegressor, X, y, k=4, seed=42)
+    b = ev.cross_validate(_MeanRegressor, X, y, k=4, seed=42)
+    assert a["mean"] == b["mean"] and a["std"] == b["std"]
+
+
+def test_cross_validate_classification_uses_scores_and_stratifies():
+    X = RNG.normal(size=(200, 2))
+    y = (X[:, 0] > 0).astype(int)
+    result = ev.cross_validate(
+        _ThresholdClassifier, X, y, k=5, task="classification"
+    )
+    assert result["mean"]["Accuracy"] == pytest.approx(1.0)
+    assert result["mean"]["ROC-AUC"] == pytest.approx(1.0)
+    assert result["std"]["F1"] == pytest.approx(0.0)
+
+
+def test_cross_validate_preprocess_sees_training_rows_only():
+    X = np.arange(40, dtype=float).reshape(20, 2)
+    y = np.arange(20, dtype=float) + 1
+    calls = []
+
+    def preprocess(train, val):
+        calls.append((len(train), len(val)))
+        mean = train.mean(axis=0)            # statistic from TRAIN only
+        return train - mean, val - mean
+
+    ev.cross_validate(_MeanRegressor, X, y, k=4, preprocess=preprocess)
+    assert calls == [(15, 5)] * 4
+
+
+def test_cross_validate_accepts_dataframes():
+    pd = pytest.importorskip("pandas")
+    X = pd.DataFrame(RNG.normal(size=(50, 2)), columns=["a", "b"])
+    y = np.abs(X["a"].to_numpy()) + 5
+    assert "RMSE" in ev.cross_validate(_MeanRegressor, X, y, k=5)["mean"]
+
+
+def test_cross_validate_rejects_bad_inputs():
+    with pytest.raises(ValueError):
+        ev.cross_validate(_MeanRegressor, np.zeros((5, 1)), np.zeros(4))
+    with pytest.raises(ValueError):
+        ev.cross_validate(_MeanRegressor, np.zeros((5, 1)), np.zeros(5), task="x")

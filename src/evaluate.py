@@ -273,6 +273,126 @@ def stratified_kfold_indices(y, k: int = 5, seed: int = 42):
     ]
 
 
+def score_regression(y_true, y_pred, log_metrics: bool = True) -> dict:
+    """RMSE, MAE and R2 on the price scale (+ RMSE/R2 on log(price)).
+
+    Prices are heavy-tailed, so the log-scale numbers show how the model does
+    across the whole market, not just on a few luxury listings. Predictions
+    are floored at 1 before taking the log so a bad prediction cannot crash it.
+    """
+    scores = {
+        "RMSE": rmse(y_true, y_pred),
+        "MAE": mae(y_true, y_pred),
+        "R2": r2(y_true, y_pred),
+    }
+    if log_metrics:
+        log_true = np.log(np.asarray(y_true, dtype=float))
+        log_pred = np.log(np.maximum(np.asarray(y_pred, dtype=float), 1.0))
+        scores["RMSE_log"] = rmse(log_true, log_pred)
+        scores["R2_log"] = r2(log_true, log_pred)
+    return scores
+
+
+def score_classification(y_true, y_pred, scores) -> dict:
+    """Accuracy, precision, recall, F1, ROC-AUC and PR-AUC in one dict."""
+    precision, recall, f1 = precision_recall_f1(y_true, y_pred)
+    return {
+        "Accuracy": accuracy(y_true, y_pred),
+        "Precision": precision,
+        "Recall": recall,
+        "F1": f1,
+        "ROC-AUC": roc_auc(y_true, scores),
+        "PR-AUC": average_precision(y_true, scores),
+    }
+
+
+def positive_scores(model, X) -> np.ndarray:
+    """Ranking score for the positive class, whatever the model offers.
+
+    predict_proba (trees) -> P(class 1); decision_function (SVMs) -> margin;
+    otherwise the hard prediction. ROC/PR-AUC only need the ordering.
+    """
+    if hasattr(model, "predict_proba"):
+        return np.asarray(model.predict_proba(X))[:, 1]
+    if hasattr(model, "decision_function"):
+        return np.asarray(model.decision_function(X), dtype=float)
+    return np.asarray(model.predict(X), dtype=float)
+
+
+def mean_std(fold_metrics: list) -> tuple:
+    """Per-metric (mean, std) across folds; std is the sample std (ddof=1)."""
+    names = list(fold_metrics[0])
+    table = np.array([[fold[name] for name in names] for fold in fold_metrics])
+    ddof = 1 if len(fold_metrics) > 1 else 0
+    return (
+        {name: float(table[:, j].mean()) for j, name in enumerate(names)},
+        {name: float(table[:, j].std(ddof=ddof)) for j, name in enumerate(names)},
+    )
+
+
+def cross_validate(
+    model_factory,
+    X,
+    y,
+    k: int = 5,
+    seed: int = 42,
+    task: str = "regression",
+    preprocess=None,
+    log_metrics: bool = True,
+) -> dict:
+    """K-fold cross-validation with mean +/- std of every metric.
+
+    model_factory : zero-argument callable returning a FRESH model with
+                    fit(X, y) and predict(X) (our models and sklearn ones).
+    preprocess    : optional callable (X_train, X_val) -> (X_train', X_val').
+                    It is called once per fold with that fold's training rows
+                    only, so scalers never see validation data (no leakage).
+    task          : "regression" (plain folds) or "classification"
+                    (stratified folds on y).
+
+    Returns {"folds", "mean", "std", "fit_seconds", "predict_seconds", "k"}.
+    Pass only train/validation rows here, never the held-out test set.
+    """
+    if task not in ("regression", "classification"):
+        raise ValueError("task must be 'regression' or 'classification'")
+    features = np.asarray(X, dtype=float)
+    targets = np.asarray(y)
+    if features.shape[0] != targets.shape[0]:
+        raise ValueError("X and y must have the same number of rows")
+    if task == "classification":
+        splits = stratified_kfold_indices(targets, k, seed)
+    else:
+        splits = kfold_indices(len(targets), k, seed)
+
+    folds, fit_times, predict_times = [], [], []
+    for train_idx, val_idx in splits:
+        X_train, X_val = features[train_idx], features[val_idx]
+        if preprocess is not None:
+            X_train, X_val = preprocess(X_train, X_val)
+        model = model_factory()
+        _, fit_seconds = timeit(model.fit, X_train, targets[train_idx])
+        predictions, predict_seconds = timeit(model.predict, X_val)
+        if task == "regression":
+            fold = score_regression(targets[val_idx], predictions, log_metrics)
+        else:
+            fold = score_classification(
+                targets[val_idx], predictions, positive_scores(model, X_val)
+            )
+        folds.append(fold)
+        fit_times.append(fit_seconds)
+        predict_times.append(predict_seconds)
+
+    mean, std = mean_std(folds)
+    return {
+        "k": k,
+        "folds": folds,
+        "mean": mean,
+        "std": std,
+        "fit_seconds": float(np.mean(fit_times)),
+        "predict_seconds": float(np.mean(predict_times)),
+    }
+
+
 def timeit(function, *args, **kwargs):
     start = perf_counter()
     result = function(*args, **kwargs)
