@@ -4,7 +4,7 @@ from pathlib import Path
 from time import perf_counter
 
 from . import data_prep, eda, evaluate
-from .baselines import fit_baselines
+from .baselines import build_baselines, fit_baselines
 from .decision_tree import DecisionTree
 from .svm import PegasosSVM
 
@@ -119,9 +119,14 @@ def main() -> dict:
     svm.fit(X_train_scaled, y_tier_train)
     svm_seconds = perf_counter() - start
 
-    baseline_models = fit_baselines(
-        X_train, y_train, y_tier_train, random_state=SEED
+    baseline_models = build_baselines(
+        {"max_depth": 8, "min_samples_leaf": 100},
+        {"criterion": "gini", "max_depth": 8, "min_samples_leaf": 100},
+        {"lambda_": 1e-3},
+        n_train=len(y_train),
+        random_state=SEED,
     )
+    fit_baselines(baseline_models, X_train, y_train, y_tier_train)
     regression_results = {
         "NumPy DecisionTree": _regression_metrics(
             y_test, regression_tree.predict(X_test)
@@ -146,8 +151,8 @@ def main() -> dict:
     )
     for name in (
         "DecisionTreeClassifier",
-        "StandardScaler+SVC",
-        "StandardScaler+SGD hinge",
+        "StandardScaler+SVC(linear)",
+        "StandardScaler+SGD(hinge)",
     ):
         model = baseline_models[name]
         predictions = model.predict(X_test)
