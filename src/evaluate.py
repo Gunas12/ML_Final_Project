@@ -122,6 +122,62 @@ def roc_auc(y_true, scores) -> float:
     )
 
 
+def _binary_scores(y_true, scores):
+    """Validate (y_true, scores) and return (is_positive, scores) arrays."""
+    actual = np.asarray(y_true)
+    values = np.asarray(scores, dtype=float)
+    if actual.ndim != 1 or values.ndim != 1:
+        raise ValueError("y_true and scores must be one-dimensional")
+    if actual.size == 0 or actual.size != values.size:
+        raise ValueError("y_true and scores must have the same non-zero length")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("scores must not contain NaN or infinite values")
+    labels = np.unique(actual)
+    if labels.size != 2:
+        raise ValueError("both classes must be present")
+    positive = 1 if 1 in labels else labels[-1]
+    return actual == positive, values
+
+
+def _cumulative_counts(is_positive, values):
+    """True/false positive counts at every DISTINCT score threshold.
+
+    Samples are sorted by descending score; a threshold may only sit between
+    two different score values, so tied scores are never split.
+    """
+    order = np.argsort(-values, kind="mergesort")
+    sorted_values = values[order]
+    sorted_positive = is_positive[order]
+    distinct = np.where(np.diff(sorted_values))[0]
+    last = np.r_[distinct, sorted_values.size - 1]
+    true_positives = np.cumsum(sorted_positive)[last].astype(float)
+    false_positives = (1 + last) - true_positives
+    return true_positives, false_positives, sorted_values[last]
+
+
+def roc_curve(y_true, scores):
+    """Return (fpr, tpr, thresholds) of the ROC curve, starting at (0, 0)."""
+    is_positive, values = _binary_scores(y_true, scores)
+    tp, fp, thresholds = _cumulative_counts(is_positive, values)
+    tpr = np.r_[0.0, tp / tp[-1]]
+    fpr = np.r_[0.0, fp / fp[-1]]
+    return fpr, tpr, np.r_[np.inf, thresholds]
+
+
+def average_precision(y_true, scores) -> float:
+    """PR-AUC as average precision: AP = sum_n (R_n - R_{n-1}) * P_n.
+
+    This is the step-wise (non-interpolated) area under the precision-recall
+    curve, the same definition scikit-learn uses, and is the more informative
+    summary when the positive class is rare.
+    """
+    is_positive, values = _binary_scores(y_true, scores)
+    tp, fp, _ = _cumulative_counts(is_positive, values)
+    precision = tp / (tp + fp)
+    recall = tp / tp[-1]
+    return float(np.sum(np.diff(np.r_[0.0, recall]) * precision))
+
+
 def compare(name_to_metrics: dict) -> None:
     if not name_to_metrics:
         raise ValueError("name_to_metrics must not be empty")
@@ -181,6 +237,160 @@ def format_table(name_to_metrics: dict) -> str:
             cells.append(f"  {formatted:>{metric_widths[metric]}}")
         lines.append(f"{str(model_name):<{row_name_width}}" + "".join(cells))
     return "\n".join(lines)
+
+
+def kfold_indices(n: int, k: int = 5, seed: int = 42):
+    """Shuffled K-fold split of range(n).
+
+    Returns a list of k (train_idx, val_idx) pairs. Every index appears in
+    exactly one validation fold; fold sizes differ by at most one.
+    """
+    if not 2 <= k <= n:
+        raise ValueError("k must satisfy 2 <= k <= n")
+    permutation = np.random.default_rng(seed).permutation(n)
+    folds = np.array_split(permutation, k)
+    return [
+        (np.concatenate([folds[j] for j in range(k) if j != i]), folds[i])
+        for i in range(k)
+    ]
+
+
+def stratified_kfold_indices(y, k: int = 5, seed: int = 42):
+    """K-fold split that keeps each class's share the same in every fold."""
+    labels = np.asarray(y)
+    if labels.ndim != 1 or labels.size < k or k < 2:
+        raise ValueError("y must be 1-D with at least k samples and k >= 2")
+    rng = np.random.default_rng(seed)
+    folds = [[] for _ in range(k)]
+    for cls in np.unique(labels):
+        members = rng.permutation(np.flatnonzero(labels == cls))
+        for i, part in enumerate(np.array_split(members, k)):
+            folds[i].append(part)
+    folds = [np.sort(np.concatenate(parts)) for parts in folds]
+    return [
+        (np.concatenate([folds[j] for j in range(k) if j != i]), folds[i])
+        for i in range(k)
+    ]
+
+
+def score_regression(y_true, y_pred, log_metrics: bool = True) -> dict:
+    """RMSE, MAE and R2 on the price scale (+ RMSE/R2 on log(price)).
+
+    Prices are heavy-tailed, so the log-scale numbers show how the model does
+    across the whole market, not just on a few luxury listings. Predictions
+    are floored at 1 before taking the log so a bad prediction cannot crash it.
+    """
+    scores = {
+        "RMSE": rmse(y_true, y_pred),
+        "MAE": mae(y_true, y_pred),
+        "R2": r2(y_true, y_pred),
+    }
+    if log_metrics:
+        log_true = np.log(np.asarray(y_true, dtype=float))
+        log_pred = np.log(np.maximum(np.asarray(y_pred, dtype=float), 1.0))
+        scores["RMSE_log"] = rmse(log_true, log_pred)
+        scores["R2_log"] = r2(log_true, log_pred)
+    return scores
+
+
+def score_classification(y_true, y_pred, scores) -> dict:
+    """Accuracy, precision, recall, F1, ROC-AUC and PR-AUC in one dict."""
+    precision, recall, f1 = precision_recall_f1(y_true, y_pred)
+    return {
+        "Accuracy": accuracy(y_true, y_pred),
+        "Precision": precision,
+        "Recall": recall,
+        "F1": f1,
+        "ROC-AUC": roc_auc(y_true, scores),
+        "PR-AUC": average_precision(y_true, scores),
+    }
+
+
+def positive_scores(model, X) -> np.ndarray:
+    """Ranking score for the positive class, whatever the model offers.
+
+    predict_proba (trees) -> P(class 1); decision_function (SVMs) -> margin;
+    otherwise the hard prediction. ROC/PR-AUC only need the ordering.
+    """
+    if hasattr(model, "predict_proba"):
+        return np.asarray(model.predict_proba(X))[:, 1]
+    if hasattr(model, "decision_function"):
+        return np.asarray(model.decision_function(X), dtype=float)
+    return np.asarray(model.predict(X), dtype=float)
+
+
+def mean_std(fold_metrics: list) -> tuple:
+    """Per-metric (mean, std) across folds; std is the sample std (ddof=1)."""
+    names = list(fold_metrics[0])
+    table = np.array([[fold[name] for name in names] for fold in fold_metrics])
+    ddof = 1 if len(fold_metrics) > 1 else 0
+    return (
+        {name: float(table[:, j].mean()) for j, name in enumerate(names)},
+        {name: float(table[:, j].std(ddof=ddof)) for j, name in enumerate(names)},
+    )
+
+
+def cross_validate(
+    model_factory,
+    X,
+    y,
+    k: int = 5,
+    seed: int = 42,
+    task: str = "regression",
+    preprocess=None,
+    log_metrics: bool = True,
+) -> dict:
+    """K-fold cross-validation with mean +/- std of every metric.
+
+    model_factory : zero-argument callable returning a FRESH model with
+                    fit(X, y) and predict(X) (our models and sklearn ones).
+    preprocess    : optional callable (X_train, X_val) -> (X_train', X_val').
+                    It is called once per fold with that fold's training rows
+                    only, so scalers never see validation data (no leakage).
+    task          : "regression" (plain folds) or "classification"
+                    (stratified folds on y).
+
+    Returns {"folds", "mean", "std", "fit_seconds", "predict_seconds", "k"}.
+    Pass only train/validation rows here, never the held-out test set.
+    """
+    if task not in ("regression", "classification"):
+        raise ValueError("task must be 'regression' or 'classification'")
+    features = np.asarray(X, dtype=float)
+    targets = np.asarray(y)
+    if features.shape[0] != targets.shape[0]:
+        raise ValueError("X and y must have the same number of rows")
+    if task == "classification":
+        splits = stratified_kfold_indices(targets, k, seed)
+    else:
+        splits = kfold_indices(len(targets), k, seed)
+
+    folds, fit_times, predict_times = [], [], []
+    for train_idx, val_idx in splits:
+        X_train, X_val = features[train_idx], features[val_idx]
+        if preprocess is not None:
+            X_train, X_val = preprocess(X_train, X_val)
+        model = model_factory()
+        _, fit_seconds = timeit(model.fit, X_train, targets[train_idx])
+        predictions, predict_seconds = timeit(model.predict, X_val)
+        if task == "regression":
+            fold = score_regression(targets[val_idx], predictions, log_metrics)
+        else:
+            fold = score_classification(
+                targets[val_idx], predictions, positive_scores(model, X_val)
+            )
+        folds.append(fold)
+        fit_times.append(fit_seconds)
+        predict_times.append(predict_seconds)
+
+    mean, std = mean_std(folds)
+    return {
+        "k": k,
+        "folds": folds,
+        "mean": mean,
+        "std": std,
+        "fit_seconds": float(np.mean(fit_times)),
+        "predict_seconds": float(np.mean(predict_times)),
+    }
 
 
 def timeit(function, *args, **kwargs):
