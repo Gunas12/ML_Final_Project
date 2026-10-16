@@ -60,6 +60,17 @@ The EDA output comprises price and log-price distributions, area versus
 price, room counts, regional and coordinate effects, and the training price
 tier balance. Figures are named `fig_eda_*.png`.
 
+Run the bonus PCA, K-means, and geographic DBSCAN clustering analysis:
+
+```powershell
+python src/bonus_clustering.py
+```
+
+The script prints adjusted Rand indices against price tiers and regions and
+saves the scree, elbow, and k-distance plots in `report/figures/`. Use
+`--clusters` to choose the K-means cluster count, or `--data` and `--figures`
+to override the input CSV and plot directory.
+
 Run the focused preparation and model tests:
 
 ```powershell
@@ -80,6 +91,7 @@ python -m pytest tests/test_data_prep.py tests/test_eda.py tests/test_decision_t
 │   └── report.tex
 ├── src/
 │   ├── baselines.py
+│   ├── bonus_clustering.py
 │   ├── data_prep.py
 │   ├── decision_tree.py
 │   ├── eda.py
