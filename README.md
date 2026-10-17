@@ -1,63 +1,101 @@
-# MLE-AI-201 Machine Learning — Final Project (Starter Pack)
+# MLE-AI-201 Machine Learning Final Project
 
-Build **two models from scratch** (a decision tree and an SVM) on the
-**bina.az** real-estate dataset, then benchmark honestly against
-scikit-learn. Read the full brief in the project statement PDF handed out
-with this pack.
+Price prediction and price-tier classification on the bina.az real-estate
+dataset. A decision tree (CART) and a Pegasos SVM (with random Fourier
+features) are implemented **from scratch in NumPy** and compared with
+scikit-learn baselines under matched hyperparameters.
 
-- **Released:** Sun 04 Oct 2026
-- **Due:** **Sun 18 Oct 2026, 23:59 (Baku)** — two weeks, no late submissions.
-- **Demo:** defended in the session after the deadline.
+## Tasks
 
-## What you submit (on Moodle)
-Exactly **three** things; **one member submits** for the whole team:
-1. **GitHub link** to your repo (tagged `v1.0-final`).
-2. **Report PDF** (IEEE two-column — use `report/report.tex`).
-3. **Slides PDF**.
+- **Task A, regression:** predict the listing price in AZN (decision tree).
+- **Task B, classification:** predict standard (`0`) versus premium (`1`),
+  where premium means price strictly above the median price of the *training*
+  split. The training threshold is reused for validation and test labels
+  (decision tree and SVM).
 
-Keep `contribution_report.md` in the repo root (checked at the demo).
+Split: deterministic 70% / 15% / 15% train/validation/test, stratified by tier,
+seed **42** (`data_prep.SEED`). Hyperparameters are chosen on validation only;
+the test split is scored once per model with the final configuration.
 
-## The two tasks
-- **Task A — Regression:** predict `price` (consider `log(price)`).
-- **Task B — Classification:** predict a derived **price tier**
-  (premium vs standard, median split on the training set).
+## Dataset
 
-## Golden rule
-Your **decision tree** and your **SVM** must be **your own NumPy code**.
-scikit-learn is for the comparison baselines (and the optional bonuses)
-only. For the SVM you do **not** need a QP/SMO solver — use the
-**Pegasos** sub-gradient method (see the statement and `src/svm.py`).
+Download Kaggle's **binaaz-sale-project** dataset by `sehriyarmemmedli` and
+place the CSV at `data/bina_az_sale.csv` (see [data/README.md](data/README.md)).
+The raw data is excluded from version control.
 
-## Repo layout
-```
-.
-├── README.md               # this file
-├── requirements.txt        # pin your versions
-├── .gitignore
-├── contribution_report.md  # who did what (keep in repo root)
-├── data/                   # dataset lives here (not committed — see data/README.md)
-├── src/                    # YOUR from-scratch code
-│   ├── data_prep.py        #   loading, cleaning, split, tier label
-│   ├── decision_tree.py    #   DecisionTree (Gini/entropy/MSE)
-│   ├── svm.py              #   PegasosSVM (hinge-loss sub-gradient)
-│   ├── evaluate.py         #   metrics + comparison helpers
-│   └── run_all.py          #   ONE command reproduces every number/figure
-├── report/                 # IEEE report (self-contained, no IEEEtran.cls)
-│   ├── report.tex
-│   └── figures/
-└── presentation/           # your slides PDF
-```
+Cleaning, outlier policy, feature selection and leakage exclusions are in
+[docs/data_decisions.md](docs/data_decisions.md). `unit_price` and
+`total_price` are target-derived and never used as features. The dump contains
+100,775 rows but only 64,454 distinct listings; after de-duplication and
+plausibility filters **64,350 listings** remain (171 features).
 
-## Reproducibility (graded)
-- Pin dependencies in `requirements.txt`; fix all random seeds.
-- `python -m src.run_all` must reproduce **every** headline number and
-  figure from a clean checkout.
-- Do **not** commit the raw data archive (see `.gitignore`).
+## Setup
 
-## Quick start
+Python 3.12+ (the pins in `requirements.txt` were generated on 3.14).
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# put the dataset in data/ (see data/README.md), then:
-python -m src.run_all
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
+
+## Running
+
+```bash
+pytest -q                       # all tests (about 1 minute)
+python -m src.run_all           # FULL run: every number, table and figure
+python -m src.run_all --fast    # tiny subset, development only
+python -m src.run_all --bonus   # additionally run bonus modules that exist
+```
+
+- A full run is slow (the from-scratch tree and `SVC(linear)` dominate); expect
+  roughly 30-40 minutes (about 50 with `--bonus`).
+- `run_all` also produces the EDA figures, so no extra step is needed.
+- Full-run outputs: `report/results_table.tex`, `report/tree_tables.tex`,
+  `report/tree_macros.tex`, `report/figures/fig_*.png` and
+  `results/results.json`. Figures are git-ignored, so run the full pipeline
+  before compiling the report.
+- `--fast` writes **only** to `results/fast/`, so it can never overwrite the
+  report numbers.
+- Bonus clustering (PCA, k-means, DBSCAN) can also be run on its own:
+  `python src/bonus_clustering.py` (`--clusters`, `--data`, `--figures`).
+
+Build the report after a full run:
+
+```bash
+cd report && pdflatex report.tex && pdflatex report.tex
+```
+
+## Repository structure
+
+```text
+.
+├── data/README.md            # dataset instructions (CSV itself is not committed)
+├── docs/data_decisions.md    # every cleaning decision and its row impact
+├── presentation/             # slides.pdf goes here
+├── report/                   # report.tex, generated tables, figures/
+├── scripts/pin_requirements.py
+├── src/
+│   ├── data_prep.py          # load, clean, features, split, tier label, standardize
+│   ├── eda.py
+│   ├── decision_tree.py      # CART from scratch (Gini / entropy / MSE)
+│   ├── svm.py                # Pegasos + random Fourier features from scratch
+│   ├── evaluate.py           # metrics, k-fold, cross-validation (own NumPy code)
+│   ├── tree_experiments.py   # depth / leaf sweeps, Gini vs entropy, learning curve
+│   ├── svm_experiments.py    # lambda and gamma sweeps, convergence, margin
+│   ├── baselines.py          # sklearn baselines (comparison only)
+│   ├── benchmark.py          # matched CV, single test evaluation, timing, tables
+│   ├── error_analysis.py
+│   ├── bonus_clustering.py   # BONUS P10: PCA, k-means, DBSCAN
+│   ├── bonus_linear.py       # BONUS P8: Ridge and epsilon-SVR from scratch
+│   ├── bonus_ensembles.py    # BONUS P9: Random Forest from our tree (bootstrap, OOB)
+│   ├── bonus_boosting.py     # BONUS P9: AdaBoost with small trees of our own tree
+│   └── run_all.py            # single entry point
+├── tests/
+├── contribution_report.md
+└── requirements.txt
+```
+
+scikit-learn is used only in `baselines.py`, `benchmark.py`, `data_prep.py`
+(stratified split helper), the bonus modules (reference comparisons only) and the tests; the decision
+tree, SVM and metrics never import it (`tests/test_core_has_no_sklearn.py`).

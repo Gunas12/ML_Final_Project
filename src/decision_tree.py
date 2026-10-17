@@ -55,6 +55,7 @@ class DecisionTree:
         min_samples_leaf: int = 1,
         min_impurity_decrease: float = 0.0,
         random_state: int = 42,
+        max_features: int | None = None,   # None = all features; k = random k per split (Random Forest)
     ):
         self.task = task
         self.criterion = criterion
@@ -63,6 +64,8 @@ class DecisionTree:
         self.min_samples_leaf = min_samples_leaf
         self.min_impurity_decrease = min_impurity_decrease
         self.random_state = random_state
+        self.max_features = max_features
+        self._rng = None                      # only used when max_features is set
         self.root: Node | None = None
         # set in fit():
         self._n_total: int | None = None      # size of the training set (for weighting)
@@ -86,6 +89,8 @@ class DecisionTree:
             raise ValueError("min_samples_leaf must be >= 1")
         if self.min_impurity_decrease < 0:
             raise ValueError("min_impurity_decrease must be >= 0")
+        if self.max_features is not None and self.max_features < 1:
+            raise ValueError("max_features must be None or >= 1")
 
     # --- impurity -----------------------------------------------------------
     def _impurity(self, y) -> float:
@@ -166,7 +171,19 @@ class DecisionTree:
 
         best = None
         best_gain = -np.inf
-        for j in range(n_features):
+        candidate_features = range(n_features)
+        n_subset = n_features
+        if self.max_features is not None and self.max_features < n_features:
+            # random subset per split (visited in increasing index order so the tie-breaking
+            # rule stays deterministic), followed by the remaining features in random order.
+            # Like scikit-learn, we keep looking past the subset ONLY if it contained no valid
+            # split (e.g. all its columns are constant in this node), instead of making a leaf.
+            permutation = self._rng.permutation(n_features)
+            n_subset = int(self.max_features)
+            candidate_features = list(np.sort(permutation[:n_subset])) + list(permutation[n_subset:])
+        for position, j in enumerate(candidate_features):
+            if position >= n_subset and best is not None:
+                break
             order = np.argsort(X[:, j], kind="mergesort")
             xs = X[order, j]
             valid = (xs[:-1] < xs[1:]) & size_ok   # never split between equal values
@@ -263,6 +280,7 @@ class DecisionTree:
             raise ValueError("X contains NaN or infinity; clean the data first")
         self._n_total = X.shape[0]
         self.n_features_ = X.shape[1]
+        self._rng = np.random.default_rng(self.random_state)
         if self.task == "classification":
             self.classes_ = np.unique(y)
             y_fit = np.searchsorted(self.classes_, y)      # labels -> codes 0..K-1
