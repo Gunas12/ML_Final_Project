@@ -1,0 +1,173 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{booktabs,graphicx,amsmath}
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+\newcommand{\fig}[2][\linewidth]{\IfFileExists{figures/#2}{\includegraphics[width=#1,height=0.30\textheight,keepaspectratio]{figures/#2}}{\fbox{missing: #2}}}
+\newcommand{\figc}[2][\linewidth]{\IfFileExists{figures/#2}{\includegraphics[width=#1,height=0.62\textheight,keepaspectratio]{figures/#2}}{\fbox{missing: #2}}}
+
+\title{Predicting bina.az Sale Prices and Price Tiers}
+\subtitle{From-scratch decision tree and Pegasos SVM}
+\author{Mammadli E. \and Mammadova G. \and Muradov A. \and Mursalov P.}
+\institute{MLE-AI-201 Machine Learning, AI Academy --- Cohort II}
+\date{}
+
+\begin{document}
+
+% 1 -------------------------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% 2 -------------------------------------------------------------------
+\begin{frame}{1. Problem and dataset}
+  \begin{itemize}
+    \item Data: Kaggle \emph{binaaz-sale-project}, 100,775 scraped rows, 51 columns, prices in AZN.
+    \item \textbf{Task A}: regress the listing price.
+    \item \textbf{Task B}: classify \emph{premium} vs.\ \emph{standard}; premium = price strictly above the \textbf{training median} (210,000 AZN).
+    \item Models written from scratch in NumPy: decision tree, Pegasos SVM (+ random Fourier features).
+    \item Compared with scikit-learn models with \textbf{matched} settings; test set scored \textbf{once}.
+  \end{itemize}
+  \vspace{0.5em}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Raw rows & Distinct listings & Cleaned & Features \\
+    \midrule
+    100,775 & 64,454 & \textbf{64,350} & 171 \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% 3 -------------------------------------------------------------------
+\begin{frame}{2. Cleaning, features and the leakage we removed}
+  \begin{itemize}
+    \item One row per listing: keep the latest scrape (the same listing was in train \emph{and} test before).
+    \item Plausibility filters (104 rows): price outside 5,000--20M AZN, area outside 8--$10^6$ m$^2$ (e.g.\ an 11 AZN flat).
+    \item Areas in \emph{sot} converted to m$^2$; floor and building floors parsed; medians imputed; one-hot categories.
+    \item \textbf{Leakage columns removed:} \texttt{unit\_price}, \texttt{total\_price} (derived from the target), plus IDs, URLs, free text, scrape time, view counts, currency.
+    \item Split 70/15/15, seed 42, stratified by tier: 45,045 / 9,652 / 9,653. Scaler fitted on train only.
+  \end{itemize}
+\end{frame}
+
+% 4 -------------------------------------------------------------------
+\begin{frame}{3. Our decision tree}
+  \begin{itemize}
+    \item Impurity: Gini, entropy (Task B); MSE = variance (Task A).
+    \item Split search: sort each feature once, scan midpoints with cumulative counts (or cumulative sums for MSE).
+    \item Pick the split with the largest weighted impurity decrease; recurse.
+    \item Hyperparameters: \texttt{max\_depth}, \texttt{min\_samples\_leaf} (also \texttt{min\_samples\_split}, \texttt{min\_impurity\_decrease}).
+    \item Chosen on validation: Task A depth 8, leaf 10 (125 leaves); Task B entropy, unlimited depth (3,068 leaves).
+  \end{itemize}
+  \vspace{0.3em}
+  \fig[0.6\linewidth]{fig_tree_depth_sweep.png}
+\end{frame}
+
+% 5 -------------------------------------------------------------------
+\begin{frame}{4. Our Pegasos SVM}
+  \begin{itemize}
+    \item Hinge primal: $J=\frac{\lambda}{2}\|w\|^2+\frac1n\sum_i\max(0,1-y_i(w^\top x_i+b))$.
+    \item Update, $\eta_t=1/(\lambda t)$, one random sample:
+      $w\leftarrow(1-\eta_t\lambda)w+\eta_t y_i x_i\,[y_i f(x_i)<1]$, $b\leftarrow b+\eta_t y_i$.
+    \item Non-linear extension: random Fourier features $\phi(x)=\sqrt{2/D}\cos(\omega^\top x+b)$, $\omega\sim\mathcal N(0,2\gamma I)$; then linear Pegasos.
+    \item Joint $(\lambda,\gamma)$ grid on validation. Chosen: $D=1024$, $\gamma=0.01$, $\lambda=3\cdot10^{-5}$, 400,000 updates.
+  \end{itemize}
+\end{frame}
+
+% 6 -------------------------------------------------------------------
+\begin{frame}{5. Experimental setup}
+  \begin{itemize}
+    \item Metrics: RMSE, MAE, $R^2$ (and on log price); accuracy, precision, recall, F1, ROC-AUC, PR-AUC. All NumPy.
+    \item Validation picks hyperparameters; \textbf{test scored once}; 5-fold CV (stratified for Task B) on train+validation.
+    \item Seed 42 everywhere; \texttt{python -m src.run\_all} reproduces every number (deterministic).
+    \item Baselines (matched): sklearn tree with the same settings; linear SVC with $C=1/(\lambda n)$; SGD hinge with $\alpha=\lambda$; RBFSampler+SGD for the RFF model.
+    \item Fit times are per-fold wall-clock on one laptop: read them as ratios.
+  \end{itemize}
+\end{frame}
+
+% 7 -------------------------------------------------------------------
+\begin{frame}{6. Results (test set)}
+  \small
+  \begin{columns}[T]
+    \begin{column}{0.56\textwidth}
+      \begin{tabular}{@{}lrr@{}}
+        \toprule
+        Model & A: RMSE & B: F1 \\
+        \midrule
+        Our tree & 358,672 & 0.919 \\
+        sklearn tree & 358,999 & 0.918 \\
+        Our SVM (RFF) & --- & 0.838 \\
+        sklearn SVC (linear) & --- & 0.839 \\
+        sklearn RBFSampler+SGD & --- & 0.833 \\
+        \bottomrule
+      \end{tabular}
+      \vspace{0.5em}
+      \begin{itemize}
+        \item Tree matches sklearn (CV RMSE $438{,}746\pm29{,}122$; CV F1 $0.915\pm0.003$).
+        \item SVM = SVC in F1, ROC-AUC 0.924 vs 0.923; fit 3.4 s vs 120 s per fold ($\approx$36$\times$ faster).
+        \item Tree has higher F1, SVM higher ROC-AUC (0.924 vs 0.920).
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.42\textwidth}
+      \figc{fig_timing_scaling.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% 8 -------------------------------------------------------------------
+\begin{frame}{7. Where the models fail, and limitations}
+  \small
+  \begin{columns}[T]
+    \begin{column}{0.5\textwidth}
+      \begin{itemize}
+        \item Top 1\% of prices (99 listings): bias $-1.48$M AZN, MAE 2.31M. Cheap listings are over-predicted ($+29{,}928$).
+        \item Sparse districts (fewer than 200 train rows): median relative error 0.355 vs 0.177 elsewhere.
+        \item SVM: precision 0.768 vs recall 0.922, it over-predicts premium. A tuned threshold may help (\emph{hypothesis, not tested}).
+        \item Asking prices, not sale prices; about 700 possible re-posted ads kept; one seed, one split.
+        \item Our NumPy tree is 5--22$\times$ slower than sklearn's.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \figc{fig_error_price_quantile.png}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% 9 -------------------------------------------------------------------
+\begin{frame}{8. Who did what, and what next}
+  \small
+  \begin{itemize}
+    \item \textbf{Mursalov}: data cleaning, features, EDA, clustering bonus.
+    \item \textbf{Mammadova}: decision tree, tree experiments, tree tests.
+    \item \textbf{Muradov}: Pegasos SVM, RFF, SVM experiments, AdaBoost review.
+    \item \textbf{Mammadli}: metrics, CV, baselines, benchmark, error analysis, \texttt{run\_all}, ridge/SVR bonus; Claude wrote the first versions of these files, she ran, tested, integrated and committed them (see \texttt{contribution\_report.md}).
+    \item AI use is disclosed in the report and the contribution report.
+  \end{itemize}
+  \textbf{Next:} tune the SVM threshold; model log price for luxury listings; de-duplicate re-posted ads; more seeds/splits.
+\end{frame}
+
+% 10 (bonus) ----------------------------------------------------------
+\begin{frame}{Bonus models (our NumPy code; sklearn only for comparison)}
+  \small
+  \begin{tabular}{@{}llrr@{}}
+    \toprule
+    Model & Metric & Ours & sklearn \\
+    \midrule
+    Random forest (30 trees) & Task B F1 & 0.936 & 0.936 \\
+    Random forest & Task A RMSE & 318,706 & 343,257 \\
+    AdaBoost (depth 3, 100 rounds) & Task B F1 & 0.904 & 0.900 \\
+    Ridge / $\varepsilon$-SVR & Task A RMSE & 583,307 / 583,895 & --- \\
+    Our single tree (reference) & Task A RMSE & 358,672 & --- \\
+    \bottomrule
+  \end{tabular}
+  \vspace{0.6em}
+  \begin{itemize}
+    \item Linear models are far worse than the tree: Task A is strongly non-linear.
+    \item Clustering: 20 PCs explain only 22.1\% of variance; K-means / DBSCAN ARI against tier at most 0.072.
+  \end{itemize}
+\end{frame}
+
+\end{document}

@@ -42,21 +42,60 @@ team's NumPy DecisionTree; sklearn is only a comparison. Verified SVM and
 AdaBoost on the real dataset and tested both Python 3.11 and the team's pinned
 Python 3.14 environment.
 
-**Mammadli, Esmira —** Implemented the NumPy metrics, k-fold / stratified k-fold and cross-validation
-in `src/evaluate.py`, the matched sklearn baselines (`src/baselines.py`), the
-benchmark with a single test evaluation and timing (`src/benchmark.py`), the
-error analysis (`src/error_analysis.py`), the single entry point
-(`src/run_all.py`), and the pinned requirements. Report: Introduction,
-Experimental Setup, Results C, Discussion, Conclusion and merge; slides 5-7.
+**Mammadli, Esmira —** Extended `src/evaluate.py` (PR-AUC, k-fold and
+stratified k-fold, `cross_validate`, timing helper) on top of Punhan's basic
+metrics (RMSE, MAE, R2, confusion matrix, precision/recall/F1, ROC-AUC), and
+integrated the matched scikit-learn baselines (`src/baselines.py`), the
+benchmark with one test evaluation and timing (`src/benchmark.py`), the error
+analysis (`src/error_analysis.py`), the single entry point (`src/run_all.py`
+with `--fast` and `--bonus`), the ridge / epsilon-SVR bonus
+(`src/bonus_linear.py`), their tests, and the pinned requirements. I ran,
+tested, debugged and committed these files, ran the final `python -m
+src.run_all --bonus` (250 tests passed), and checked the report and slide
+numbers against that run. **The first versions of these files, the ridge/SVR
+bonus and the first drafts of the report and slides were written by Claude
+(see AI assistance); I did not write them from scratch.**
+Report and slides: Introduction, Experimental Setup, Results C (benchmark
+table), Discussion (error analysis), Conclusion, Tools and Acknowledgements and
+the merge of all sections; slides 5-7 and the final slides PDF. The first
+drafts of these sections (and of the whole report and slides) were written by
+Claude; I checked the numbers against the final full run.
+Bonus code I can explain at the defence: [Esmira: keep `bonus_linear.py` only if true].
 
 ## AI assistance
-Claude assisted with the final repository review, bonus-model and joint RFF-grid
-drafts, shared pipeline fixes, README, report and slides.
+Claude (Anthropic) was used for:
+- the first versions of `src/baselines.py`, `src/benchmark.py`,
+  `src/error_analysis.py`, the `src/run_all.py` pipeline, the extensions of
+  `src/evaluate.py` (PR-AUC, k-fold, cross-validation), `src/bonus_linear.py`
+  (ridge, epsilon-SVR), and their tests (`tests/test_baselines.py`,
+  `tests/test_benchmark.py`, `tests/test_error_analysis.py`,
+  `tests/test_bonus_models.py`, `tests/test_run_all.py`,
+  `tests/test_core_has_no_sklearn.py`), all written with Member 4, who ran,
+  tested and committed them;
+- the final repository review, shared pipeline fixes, and drafts of the report,
+  the slides and this file.
 
 OpenAI Codex also assisted Member 3 with the SVM/AdaBoost review, integration,
 safety fixes, regression tests, real-data verification and documentation.
 The initial joint-grid and AdaBoost drafts were supplied by the teammate.
 
-## Effort allocation and signatures
+Members 1 and 2: [add your own AI use, or write "none"].
 
-Individual effort percentages and signatures are pending team confirmation.
+## Bonus ownership (who explains it at the defence)
+| Bonus | Code | Member who explains it |
+|-------|------|------------------------|
+| P8 Ridge / SVR | `src/bonus_linear.py` | Mammadli Esmira |
+| P9 Random forest | `src/bonus_ensembles.py` | Mammadova Gunash |
+| P9 AdaBoost | `src/bonus_boosting.py` | Muradov Ali |
+| P10 PCA / K-means / DBSCAN | `src/bonus_clustering.py` | Mursalov Punhan |
+
+## Effort allocation and signatures
+Percentages are agreed by the team; each member checks their own paragraph
+above and signs it themselves.
+
+| Member | Effort (%) | Signature | Date |
+|--------|-----------:|-----------|------|
+| Mursalov, Punhan | [ ] | | |
+| Mammadova, Gunash | [ ] | | |
+| Muradov, Ali | [ ] | | |
+| Mammadli, Esmira | [ ] | | |

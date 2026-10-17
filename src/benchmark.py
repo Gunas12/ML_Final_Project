@@ -221,7 +221,7 @@ def plot_timing(timing: dict, out_dir: str) -> str:
 # results table (console + LaTeX)
 # --------------------------------------------------------------------------
 def _pm(cv, name, digits=3, scale=1.0):
-    return f"{cv['mean'][name] * scale:.{digits}f} $\\pm$ {cv['std'][name] * scale:.{digits}f}"
+    return f"{cv['mean'][name] * scale:,.{digits}f} $\\pm$ {cv['std'][name] * scale:,.{digits}f}"
 
 
 def _escape(text: str) -> str:
