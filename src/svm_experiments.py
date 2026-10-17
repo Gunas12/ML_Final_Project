@@ -16,6 +16,8 @@ from .svm import PegasosSVM, RandomFourierFeatures
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+ITERATION_BUDGETS = {True: 2_000, False: 400_000}
+
 
 def _has_non_finite_values(values) -> bool:
     """Return whether numeric/object labels contain missing or infinite values."""
@@ -171,6 +173,7 @@ def gamma_sweep(
         results.append(
             {
                 "gamma": float(gamma),
+                "lambda": float(lambda_),
                 "validation_score": float(
                     score_fn(y_validation, validation_predictions)
                 ),
@@ -254,7 +257,11 @@ def plot_gamma_results(results, output_path):
     axis.set_xscale("log")
     axis.set_xlabel("Gamma")
     axis.set_ylabel("Validation score")
-    axis.set_title("RFF gamma sweep")
+    lambda_ = ordered[0].get("lambda") if ordered else None
+    title = "RFF gamma sweep"
+    if lambda_ is not None:
+        title += f" (lambda={lambda_:g})"
+    axis.set_title(title)
     axis.legend()
     axis.grid(alpha=0.3)
     figure.tight_layout()
@@ -292,13 +299,19 @@ def run(
     if fast:
         lambda_values = [1e-3, 1e-2, 1e-1]
         gamma_values = [0.1, 1.0]
+        rff_lambda_values = [1e-3]
         n_components = 64
-        n_iters = 2_000
     else:
-        lambda_values = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
-        gamma_values = [0.01, 0.1, 1.0, 10.0]
-        n_components = 256
-        n_iters = 20_000
+        # Include stronger regularization; the optimum is determined by validation.
+        lambda_values = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1.0]
+        # Explore bandwidths near the inverse feature-count scale after scaling.
+        gamma_values = [0.003, 0.01, 0.03, 0.1]
+        # RFF changes feature geometry. Tune its regularization independently;
+        # the best linear lambda need not be suitable for the mapped features.
+        rff_lambda_values = [1e-5, 3e-5, 1e-4, 3e-4]
+        n_components = 1024
+
+    n_iters = ITERATION_BUDGETS[bool(fast)]
 
     lambda_results, best_linear = lambda_sweep(
         X_train,
@@ -310,18 +323,31 @@ def run(
         random_state,
         score_fn,
     )
-    gamma_results, best_rff = gamma_sweep(
-        X_train,
-        y_train,
-        X_validation,
-        y_validation,
-        gamma_values,
-        n_components,
-        best_linear["lambda"],
-        n_iters,
-        random_state,
-        score_fn,
-    )
+    best_rff, gamma_results, rff_grid = None, None, []
+    for rff_lambda in rff_lambda_values:
+        sweep, sweep_best = gamma_sweep(
+            X_train,
+            y_train,
+            X_validation,
+            y_validation,
+            gamma_values,
+            n_components,
+            rff_lambda,
+            n_iters,
+            random_state,
+            score_fn,
+        )
+        for item in sweep:
+            item["lambda"] = float(rff_lambda)
+            rff_grid.append(
+                {
+                    "lambda": float(rff_lambda),
+                    "gamma": item["gamma"],
+                    "validation_score": item["validation_score"],
+                }
+            )
+        if best_rff is None or sweep_best["validation_score"] > best_rff["validation_score"]:
+            best_rff, gamma_results = sweep_best, sweep   # selection uses VALIDATION only
 
     if best_rff["validation_score"] > best_linear["validation_score"]:
         selected_model_type = "rff"
@@ -352,9 +378,14 @@ def run(
 
     return {
         "selected_model_type": selected_model_type,
-        "best_lambda": best_linear["lambda"],
+        "best_lambda": selected["lambda"],
+        "best_linear_lambda": best_linear["lambda"],
+        "best_linear_validation_score": best_linear["validation_score"],
+        "best_rff_validation_score": best_rff["validation_score"],
+        "rff_grid": rff_grid,
         "best_gamma": best_gamma,
         "n_components": n_components,
+        "n_iters": n_iters,
         "validation_score": selected["validation_score"],
         "test_score": test_score,
         "final_loss": selected["final_loss"],

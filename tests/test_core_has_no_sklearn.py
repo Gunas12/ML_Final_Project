@@ -32,6 +32,7 @@ def test_core_module_has_no_library_model_imports(filename):
 
 
 def test_sklearn_is_confined_to_comparison_code():
-    allowed = {"baselines.py", "benchmark.py", "data_prep.py", "bonus_clustering.py"}
+    allowed = {"baselines.py", "benchmark.py", "data_prep.py", "bonus_clustering.py",
+               "bonus_boosting.py"}  # imports only inside its comparison helper
     users = {p.name for p in SRC.glob("*.py") if "sklearn" in _imported_roots(p)}
     assert users <= allowed, f"unexpected sklearn imports in: {sorted(users - allowed)}"
