@@ -1,101 +1,109 @@
 # MLE-AI-201 Machine Learning Final Project
 
-Price prediction and price-tier classification on the bina.az real-estate
-dataset. A decision tree (CART) and a Pegasos SVM (with random Fourier
-features) are implemented **from scratch in NumPy** and compared with
-scikit-learn baselines under matched hyperparameters.
+This project predicts sale prices and derived price tiers for listings from
+the bina.az real-estate dataset. It implements a decision tree and a Pegasos
+support-vector machine in NumPy and compares them with scikit-learn baselines.
 
 ## Tasks
 
-- **Task A, regression:** predict the listing price in AZN (decision tree).
-- **Task B, classification:** predict standard (`0`) versus premium (`1`),
-  where premium means price strictly above the median price of the *training*
-  split. The training threshold is reused for validation and test labels
-  (decision tree and SVM).
+- **Regression:** predict the listing price in AZN.
+- **Classification:** predict standard (`0`) versus premium (`1`), where
+  premium means the price is strictly above the median price in the training
+  split. The training threshold is reused for validation and test labels.
 
-Split: deterministic 70% / 15% / 15% train/validation/test, stratified by tier,
-seed **42** (`data_prep.SEED`). Hyperparameters are chosen on validation only;
-the test split is scored once per model with the final configuration.
+The models are evaluated with a deterministic 70% / 15% / 15%
+train/validation/test split. The split, SVM standardization, and model
+experiments use random seed **42**.
 
 ## Dataset
 
 Download Kaggle's **binaaz-sale-project** dataset by `sehriyarmemmedli` and
-place the CSV at `data/bina_az_sale.csv` (see [data/README.md](data/README.md)).
-The raw data is excluded from version control.
+place the extracted CSV at `data/bina_az_sale.csv`. Dataset details and
+version/date information are maintained in [data/README.md](data/README.md).
+The raw dataset is excluded from version control.
 
-Cleaning, outlier policy, feature selection and leakage exclusions are in
-[docs/data_decisions.md](docs/data_decisions.md). `unit_price` and
-`total_price` are target-derived and never used as features. The dump contains
-100,775 rows but only 64,454 distinct listings; after de-duplication and
-plausibility filters **64,350 listings** remain (171 features).
+Cleaning, missing-value handling, outlier policy, feature selection, and
+leakage exclusions are documented in
+[docs/data_decisions.md](docs/data_decisions.md). In particular,
+`unit_price` and `total_price` are target-derived and are excluded from model
+features.
 
 ## Setup
 
-Python 3.12+ (the pins in `requirements.txt` were generated on 3.14).
-
-```bash
+```powershell
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
 ## Running
 
-```bash
-pytest -q                       # all tests (about 1 minute)
-python -m src.run_all           # FULL run: every number, table and figure
-python -m src.run_all --fast    # tiny subset, development only
-python -m src.run_all --bonus   # additionally run bonus modules that exist
+Run the integrated baseline and from-scratch model pipeline:
+
+```powershell
+python -m src.run_all
 ```
 
-- A full run is slow (the from-scratch tree and `SVC(linear)` dominate); expect
-  roughly 30-40 minutes (about 50 with `--bonus`).
-- `run_all` also produces the EDA figures, so no extra step is needed.
-- Full-run outputs: `report/results_table.tex`, `report/tree_tables.tex`,
-  `report/tree_macros.tex`, `report/figures/fig_*.png` and
-  `results/results.json`. Figures are git-ignored, so run the full pipeline
-  before compiling the report.
-- `--fast` writes **only** to `results/fast/`, so it can never overwrite the
-  report numbers.
-- Bonus clustering (PCA, k-means, DBSCAN) can also be run on its own:
-  `python src/bonus_clustering.py` (`--clusters`, `--data`, `--figures`).
+Generate exploratory figures from prepared splits:
 
-Build the report after a full run:
+```python
+from src.data_prep import clean, load_raw, make_features, train_val_test_split
+from src.eda import run
 
-```bash
-cd report && pdflatex report.tex && pdflatex report.tex
+cleaned = clean(load_raw())
+X, y_price, feature_names = make_features(cleaned)
+splits = train_val_test_split(X, y_price, seed=42)
+figures = run(splits, out_dir="report/figures")
+```
+
+The EDA output comprises price and log-price distributions, area versus
+price, room counts, regional and coordinate effects, and the training price
+tier balance. Figures are named `fig_eda_*.png`.
+
+Run the bonus PCA, K-means, and geographic DBSCAN clustering analysis:
+
+```powershell
+python src/bonus_clustering.py
+```
+
+The script prints adjusted Rand indices against price tiers and regions and
+saves the scree, elbow, and k-distance plots in `report/figures/`. Use
+`--clusters` to choose the K-means cluster count, or `--data` and `--figures`
+to override the input CSV and plot directory.
+
+Run the focused preparation and model tests:
+
+```powershell
+python -m pytest tests/test_data_prep.py tests/test_eda.py tests/test_decision_tree.py tests/test_svm.py tests/test_svm_experiments.py -q
 ```
 
 ## Repository structure
 
 ```text
 .
-├── data/README.md            # dataset instructions (CSV itself is not committed)
-├── docs/data_decisions.md    # every cleaning decision and its row impact
-├── presentation/             # slides.pdf goes here
-├── report/                   # report.tex, generated tables, figures/
-├── scripts/pin_requirements.py
+├── data/
+│   └── README.md
+├── docs/
+│   └── data_decisions.md
+├── presentation/
+├── report/
+│   ├── figures/
+│   └── report.tex
 ├── src/
-│   ├── data_prep.py          # load, clean, features, split, tier label, standardize
+│   ├── baselines.py
+│   ├── bonus_clustering.py
+│   ├── data_prep.py
+│   ├── decision_tree.py
 │   ├── eda.py
-│   ├── decision_tree.py      # CART from scratch (Gini / entropy / MSE)
-│   ├── svm.py                # Pegasos + random Fourier features from scratch
-│   ├── evaluate.py           # metrics, k-fold, cross-validation (own NumPy code)
-│   ├── tree_experiments.py   # depth / leaf sweeps, Gini vs entropy, learning curve
-│   ├── svm_experiments.py    # lambda and gamma sweeps, convergence, margin
-│   ├── baselines.py          # sklearn baselines (comparison only)
-│   ├── benchmark.py          # matched CV, single test evaluation, timing, tables
-│   ├── error_analysis.py
-│   ├── bonus_clustering.py   # BONUS P10: PCA, k-means, DBSCAN
-│   ├── bonus_linear.py       # BONUS P8: Ridge and epsilon-SVR from scratch
-│   ├── bonus_ensembles.py    # BONUS P9: Random Forest from our tree (bootstrap, OOB)
-│   ├── bonus_boosting.py     # BONUS P9: AdaBoost with small trees of our own tree
-│   └── run_all.py            # single entry point
+│   ├── evaluate.py
+│   ├── run_all.py
+│   ├── svm.py
+│   ├── svm_experiments.py
+│   └── tree_experiments.py
 ├── tests/
 ├── contribution_report.md
 └── requirements.txt
 ```
 
-scikit-learn is used only in `baselines.py`, `benchmark.py`, `data_prep.py`
-(stratified split helper), the bonus modules (reference comparisons only) and the tests; the decision
-tree, SVM and metrics never import it (`tests/test_core_has_no_sklearn.py`).
+The LaTeX report source is [report/report.tex](report/report.tex); keep the
+team contributions in [contribution_report.md](contribution_report.md).
