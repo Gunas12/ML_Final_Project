@@ -44,7 +44,7 @@ def test_final_configs_follow_validation_choices():
     cfg = run_all.final_configs(tree, linear, fast=False)
     assert cfg["tree_regression"] == {"max_depth": 8, "min_samples_leaf": 100}
     assert cfg["tree_classification"]["criterion"] == "entropy"
-    assert cfg["svm"] == {"lambda_": 1e-3, "n_iters": 400_000}
+    assert cfg["svm"] == {"lambda_": 1e-3, "n_iters": run_all.SVM_ITERS[False]}
     rff = {**linear, "selected_model_type": "rff", "best_gamma": 0.1}
     cfg = run_all.final_configs(tree, rff, fast=True)
     assert cfg["svm"]["gamma"] == 0.1 and cfg["svm"]["n_iters"] == 2_000
@@ -72,11 +72,15 @@ def test_run_all_fast_end_to_end(tmp_path, monkeypatch):
     assert results["mode"] == "fast" and results["folds"] == 3
     sizes = results["split_sizes"]
     assert sizes["train"] > sizes["validation"] and sizes["test"] > 0
-    assert (tmp_path / "report" / "results_table.tex").exists()
-    assert (tmp_path / "results" / "results.json").exists()
+    # --fast writes ONLY under results/fast/ so it can never clobber report/
+    fast_dir = tmp_path / "results" / "fast"
+    assert (fast_dir / "results_table.tex").exists()
+    assert (fast_dir / "results.json").exists()
     for figure in ("fig_error_price_quantile.png", "fig_error_classification.png", "fig_timing_scaling.png"):
-        assert (tmp_path / "report" / "figures" / figure).exists()
-    json.loads((tmp_path / "results" / "results.json").read_text(encoding="utf-8"))
+        assert (fast_dir / "figures" / figure).exists()
+    assert not (tmp_path / "report" / "results_table.tex").exists()
+    assert not (tmp_path / "report" / "figures").exists()
+    json.loads((fast_dir / "results.json").read_text(encoding="utf-8"))
     # every model scored the same test rows
     keys = [k for k in results["test"] if k[0] == "classification"]
     assert len(keys) >= 4
