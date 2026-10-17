@@ -55,8 +55,11 @@ src.run_all --bonus` (250 tests passed), and checked the report and slide
 numbers against that run. **The first versions of these files, the ridge/SVR
 bonus and the first drafts of the report and slides were written by Claude
 (see AI assistance); I did not write them from scratch.**
-Report: Introduction, Experimental Setup, the error analysis in the Discussion,
-Conclusion, Tools and the merge of the team's sections; slides 5-7.
+Report and slides: Introduction, Experimental Setup, Results C (benchmark
+table), Discussion (error analysis), Conclusion, Tools and Acknowledgements and
+the merge of all sections; slides 5-7 and the final slides PDF. The first
+drafts of these sections (and of the whole report and slides) were written by
+Claude; I checked the numbers against the final full run.
 Bonus code I can explain at the defence: [Esmira: keep `bonus_linear.py` only if true].
 
 ## AI assistance
@@ -81,10 +84,10 @@ Members 1 and 2: [add your own AI use, or write "none"].
 ## Bonus ownership (who explains it at the defence)
 | Bonus | Code | Member who explains it |
 |-------|------|------------------------|
-| P8 Ridge / SVR | `src/bonus_linear.py` | [ ] |
-| P9 Random forest | `src/bonus_ensembles.py` | [ ] |
-| P9 AdaBoost | `src/bonus_boosting.py` | [ ] |
-| P10 PCA / K-means / DBSCAN | `src/bonus_clustering.py` | [ ] |
+| P8 Ridge / SVR | `src/bonus_linear.py` | Mammadli Esmira |
+| P9 Random forest | `src/bonus_ensembles.py` | Mammadova Gunash |
+| P9 AdaBoost | `src/bonus_boosting.py` | Muradov Ali |
+| P10 PCA / K-means / DBSCAN | `src/bonus_clustering.py` | Mursalov Punhan |
 
 ## Effort allocation and signatures
 Percentages are agreed by the team; each member checks their own paragraph
