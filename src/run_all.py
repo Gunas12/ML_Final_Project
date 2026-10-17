@@ -36,7 +36,7 @@ RESULTS_DIR = Path("results")
 BONUS_MODULES = ("bonus_linear", "bonus_ensembles", "bonus_boosting", "bonus_clustering")
 
 # SVM iteration budgets mirror svm_experiments.run (fast / full)
-SVM_ITERS = {True: 2_000, False: 20_000}
+SVM_ITERS = svm_experiments.ITERATION_BUDGETS
 FAST_ROWS = {"train": 6_000, "val": 2_000, "test": 2_000}
 
 
@@ -85,7 +85,8 @@ def final_configs(tree_results: dict, svm_results: dict, fast: bool) -> dict:
     cfg_a = {k: v for k, v in tree_results["task_A"]["final_config"].items() if k in keep}
     cfg_b = {k: v for k, v in tree_results["task_B"]["final_config"].items() if k in keep}
     cfg_b["criterion"] = tree_results["task_B"]["final_criterion"]
-    svm = {"lambda_": svm_results["best_lambda"], "n_iters": SVM_ITERS[fast]}
+    svm = {"lambda_": svm_results["best_lambda"],
+           "n_iters": svm_results.get("n_iters", SVM_ITERS[fast])}
     if svm_results["selected_model_type"] == "rff":
         svm.update(gamma=svm_results["best_gamma"], n_components=svm_results["n_components"])
     return {"tree_regression": cfg_a, "tree_classification": cfg_b, "svm": svm}

@@ -165,7 +165,8 @@ minimises the soft-margin primal objective
   \frac{1}{n}\sum_{i=1}^{n}
   \max\!\left(0,1-y_i(\mathbf{w}^{\top}\mathbf{x}_i+b)\right).
 \end{equation}
-Training uses single-sample stochastic Pegasos. At iteration $t$, one
+Training uses a single-sample, Pegasos-style stochastic subgradient variant,
+without a projection step. At iteration $t$, one
 training example is sampled using a fixed random seed and the learning
 rate is
 \begin{equation}
@@ -215,19 +216,23 @@ scikit-learn baselines you compared against (with matched settings).
 The training split fits every candidate model, the validation split selects
 hyperparameters using classification F1, and the test split is evaluated
 exactly once after model selection. The linear search uses
-$\lambda\in\{10^{-5},10^{-4},10^{-3},10^{-2},10^{-1}\}$; validation-score
+$\lambda\in\{10^{-5},10^{-4},10^{-3},10^{-2},10^{-1},1\}$; validation-score
 ties prefer the larger $\lambda$ to favour stronger regularisation. Using
-the selected $\lambda$, the RFF search evaluates
-$\gamma\in\{0.01,0.1,1.0,10.0\}$; ties prefer the smaller $\gamma$. The full
-experiment uses $D=256$ RFF components and $20{,}000$ Pegasos iterations.
+an independent regularisation grid, the RFF search jointly evaluates
+$\lambda\in\{10^{-5},3\cdot10^{-5},10^{-4},3\cdot10^{-4}\}$ and
+$\gamma\in\{0.003,0.01,0.03,0.1\}$. Within a lambda sweep, ties prefer the
+smaller $\gamma$; across RFF lambdas the first tied candidate is retained.
+Linear wins a tie between model families. The full experiment uses $D=1024$
+RFF components and $400{,}000$ single-example updates per candidate, about
+8.88 expected passes over 45,045 training rows, not 400,000 epochs.
+The feature map changes geometry, so the linear model's preferred lambda
+need not be suitable for RFF; the map's normalisation alone does not prove
+that a particular lambda must be used.
 All random seeds are fixed for reproducibility. The smaller
 \texttt{fast=True} configuration is used only for development and testing,
 not for final reported results. For each candidate, the experiment records
 F1, final objective loss, weight norm, margin width, support count, and fit
 time.
-
-% TODO(data-ready): insert selected lambda, gamma, validation F1, test F1,
-% AUC, timing, support count, and figure references from the real dataset run.
 
 \section{Results}
 Lead with a results table; back every claim with a number or figure.
@@ -257,9 +262,38 @@ Lead with a results table; back every claim with a number or figure.
   \label{fig:main}
 \end{figure}
 
+\subsection{Results B: SVM and the Member 3 bonus}
+On 64,350 cleaned listings (171 features; split 45,045/9,652/9,653),
+validation selects RFF with $D=1024$, $\gamma=0.01$ and
+$\lambda=3\cdot10^{-5}$. Validation F1 is 0.845292, test F1 is 0.838028,
+and test ROC-AUC is 0.924372. The final objective is 0.424093, the weight
+norm is 39.600592, the RFF-space margin width is 0.050504, and 17,528
+training examples lie on or inside the functional margin.
+This improvement over the earlier 20,000-update linear run cannot be
+attributed to RFF alone: both the search grid and the training budget changed.
+
+The optional AdaBoost implementation combines the team's NumPy decision
+trees using weighted bootstrap samples. Its weighted error is measured on
+the original training rows. A weak learner has
+$\alpha_t=\frac12\log((1-\epsilon_t)/\epsilon_t)$ and sample weights are
+updated by $p_i\propto p_i\exp(-\alpha_t y_i h_t(x_i))$. Validation selects
+depth 3 over depth 1 with 100 rounds: validation F1 0.905720, test F1
+0.903570 and test ROC-AUC 0.970985. The discrete sklearn AdaBoost reference
+reaches test F1 0.900365. It uses exact sample-weighted splits, whereas ours
+uses weighted resampling, so identical fitted trees are not expected.
+
 \section{Discussion and Limitations}
 Where and why each model fails (luxury outliers, sparse districts,
 scaling effects), the bias--variance story, and honest limitations.
+
+\paragraph{SVM and boosting limitations.}
+The SVM has no projection step, no calibrated probability output, and uses
+a finite-dimensional approximation of the RBF kernel. We did not tune its
+decision threshold. A high ROC-AUC does not prove that threshold tuning
+will close a gap in F1. Fit-time ratios are machine- and implementation-
+dependent; RFF Pegasos and an exact linear SVC solve different feature-space
+problems. AdaBoost's bootstrap approximation adds sampling variability;
+failed resamples retain the learned weights and perfect learners stop early.
 
 \section{Conclusion}
 One short paragraph: what you found and what you would do next.
@@ -267,6 +301,12 @@ One short paragraph: what you found and what you would do next.
 \section*{Tools and Acknowledgements}
 Disclose any AI-assistant use and what it was used for, plus data/code
 you built on. (Required.)
+
+Member 3 update: the joint RFF grid and AdaBoost started from a teammate's
+AI-assisted draft. OpenAI Codex assisted with review, safety fixes,
+regression tests, real-data verification, and Member 3 documentation.
+The member must review and be able to explain the implementation before
+signing the contribution report.
 
 % =====================================================================
 \begin{thebibliography}{9}

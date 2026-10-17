@@ -44,7 +44,7 @@ def test_final_configs_follow_validation_choices():
     cfg = run_all.final_configs(tree, linear, fast=False)
     assert cfg["tree_regression"] == {"max_depth": 8, "min_samples_leaf": 100}
     assert cfg["tree_classification"]["criterion"] == "entropy"
-    assert cfg["svm"] == {"lambda_": 1e-3, "n_iters": 20_000}
+    assert cfg["svm"] == {"lambda_": 1e-3, "n_iters": 400_000}
     rff = {**linear, "selected_model_type": "rff", "best_gamma": 0.1}
     cfg = run_all.final_configs(tree, rff, fast=True)
     assert cfg["svm"]["gamma"] == 0.1 and cfg["svm"]["n_iters"] == 2_000
