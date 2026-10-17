@@ -76,9 +76,9 @@
     Hyperparameters are chosen on a validation split; the test split is
     scored once. On 64,350 cleaned listings our tree reaches a test RMSE of
     358,672 AZN on Task~A and an F1 of 0.919 on Task~B, within 0.1\% RMSE and
-    0.002 F1 of the scikit-learn tree. Our SVM reaches F1 0.838 (ROC-AUC 0.924),
-    equal to scikit-learn's linear SVC (0.839), and trains about 36 times
-    faster per fold in our cross-validation runs. The tree is better on F1 even though the SVM has the higher
+    0.001 F1 of the scikit-learn tree. Our SVM reaches F1 0.838 (ROC-AUC 0.924),
+    equal to scikit-learn's linear SVC (0.839), and fits about 46 times
+    faster per fold in 5-fold cross-validation (5.3~s vs.\ 245~s). The tree is better on F1 even though the SVM has the higher
     ROC-AUC. Errors concentrate on the most expensive listings
     (the top 1\% of prices are under-predicted by 1.5M AZN on average) and
     on sparsely represented districts. Optional bonus models (ridge/SVR,
@@ -171,6 +171,13 @@ listings). Standardisation is fitted on training rows only.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+  \centering
+  \IfFileExists{figures/fig_eda_log_price_distribution.png}{\includegraphics[width=\linewidth]{figures/fig_eda_log_price_distribution.png}}{\fbox{figure missing}}
+  \caption{Distribution of log price after cleaning; raw prices are strongly right-skewed.}
+  \label{fig:logprice}
+\end{figure}
 
 \section{Method}
 \subsection{Decision tree (from scratch)}
@@ -282,7 +289,7 @@ For Task~B, entropy and Gini differ by only 0.0011 validation F1
 final tree has 3,068 leaves and test F1 0.919. With matched settings, ours
 and scikit-learn's classification trees have 3,068 and 3,079 leaves and agree
 on 97.9\% of test predictions; the regression trees both have 125 leaves but
-agree on 87.6\% of predictions, so the two implementations are close in
+agree on 87.5\% of predictions, so the two implementations are close in
 accuracy but not identical (we did not trace the difference, which may come
 from tie-breaking).
 \begin{figure}[t]
@@ -292,18 +299,34 @@ from tie-breaking).
   \label{fig:depth}
 \end{figure}
 \input{tree_tables}
+\begin{figure}[t]
+  \centering
+  \IfFileExists{figures/fig_tree_importance.png}{\includegraphics[width=\linewidth]{figures/fig_tree_importance.png}}{\fbox{figure missing}}
+  \caption{Impurity-based feature importances of our final trees (Task~A left, Task~B right). Area and location (lat/lng) dominate.}
+  \label{fig:imp}
+\end{figure}
 
 \subsection{Results B: SVM}
 Validation selects RFF with $D=1024$, $\gamma=0.01$ and
 $\lambda=3\cdot10^{-5}$. Validation F1 is 0.845, test F1 is 0.838 and test
 ROC-AUC is 0.924. The final objective is 0.424, the weight norm is 39.6, the
 RFF-space margin width is 0.0505, and 17,528 training examples lie on or
-inside the functional margin. In cross-validation our SVM obtains F1
-$0.843\pm0.005$, the same as scikit-learn's linear SVC ($0.843\pm0.008$),
-while fitting in 3.4~s instead of 120~s per fold (about 36 times faster; Table~\ref{tab:results_task_b} lists 3.6~s against 125~s for one fit on the full training split);
-the two solve different feature-space problems, so this is not a like-for-like
-solver comparison. The gain over the earlier linear run (F1 0.810) cannot be
-attributed to RFF alone, since the grid and the update budget also changed.
+inside the functional margin. In 5-fold cross-validation our SVM obtains F1 $0.843\pm0.005$, the same as
+scikit-learn's linear SVC ($0.843\pm0.008$), while fitting in 5.3~s instead of
+245.4~s per fold (about 46 times faster; Table~\ref{tab:results_task_b} lists
+6.4~s against 303.2~s for one fit on the full training split). The two solve
+different feature-space problems (RFF versus a linear kernel), so this is not a
+like-for-like solver comparison. On validation, the best RFF model beat the best
+purely linear Pegasos model ($\lambda=0.01$) by 0.845 to 0.840 F1, a small
+gain. The objective (Fig.~\ref{fig:svmconv}) is noisy early because of the
+large initial step sizes and settles near 0.4 after about $10^5$ updates.
+
+\begin{figure}[t]
+  \centering
+  \IfFileExists{figures/fig_svm_convergence.png}{\includegraphics[width=\linewidth]{figures/fig_svm_convergence.png}}{\fbox{figure missing}}
+  \caption{Pegasos objective $J(\mathbf{w},b)$ during training of the final RFF model (400,000 updates).}
+  \label{fig:svmconv}
+\end{figure}
 
 \begin{figure}[t]
   \centering
@@ -373,32 +396,29 @@ slightly favour matches between train and test. Cleaning limits on price and
 area were fixed from the distribution, not tuned. The SVM has no projection
 step and no calibrated probabilities, and uses a finite-dimensional
 approximation of the RBF kernel. Fit times depend on the machine and the
-implementation; our pure-NumPy tree is about 5 to 22 times slower than
-scikit-learn's compiled one. AdaBoost's weighted bootstrap adds sampling
+implementation; our pure-NumPy tree is about 5 to 30 times slower than
+scikit-learn's compiled one (CV fit 4.5~s vs.\ 1.0~s for Task~A, 20.5~s vs.\ 0.7~s for Task~B). AdaBoost's weighted bootstrap adds sampling
 variability. Results come from one seed and one split; the CV spread
 ($\pm29{,}122$ RMSE) shows that single-split RMSE differences below that size
 should not be over-interpreted.
 
 \section{Conclusion}
-Tree models trained from scratch match scikit-learn to within 0.002 F1 and
-0.1\% RMSE, and our Pegasos+RFF SVM matches a linear SVC at a fraction of the
-training time. On this data the tree is clearly the better classifier by F1,
+Tree models trained from scratch match scikit-learn to within 0.001 F1 and
+0.1\% RMSE, and our Pegasos+RFF SVM matches a linear SVC in F1 and fits about 46 times faster. On this data the tree is clearly the better classifier by F1,
 and bagging it into a forest helps further. Next steps are tuning the SVM
 decision threshold, modelling log price to reduce the luxury-listing error,
 and de-duplicating re-posted listings.
 
 \section*{Tools and Acknowledgements}
-AI assistants were used in this project. Claude (Anthropic) wrote the first
-versions of the evaluation extensions (PR-AUC, k-fold and cross-validation),
-\texttt{baselines.py}, \texttt{benchmark.py}, \texttt{error\_analysis.py}, the
-\texttt{run\_all.py} pipeline, the ridge/SVR bonus and the first drafts of
-this report and the slides, working with Member~4, who ran, tested and
-committed them and reviewed the text. The Member~3 joint RFF grid and AdaBoost
-started from a teammate's AI-assisted draft; OpenAI Codex assisted with review,
-safety fixes, regression tests and real-data verification. \textbf{[Members 1
-and 2: add your own AI use here, or state that you used none.]}
-We used scikit-learn, NumPy and matplotlib; scikit-learn appears only in
-baselines and bonus reference comparisons. Data: Kaggle
+AI assistants (Claude by Anthropic, and OpenAI Codex) were used only in a
+limited, assisting role: for small code corrections and for help preparing the
+\LaTeX{} source of this report and of the slides. The algorithms, experiments,
+analysis and conclusions are the team's own; every reported number was
+produced by running \texttt{python -m src.run\_all} and checked by the
+authors against its output. Each member's own use is also listed in
+\texttt{contribution\_report.md}.
+We used NumPy, pandas, matplotlib and scikit-learn; scikit-learn appears only in
+baselines, tests and bonus reference comparisons. Data: Kaggle
 \emph{binaaz-sale-project} by \texttt{sehriyarmemmedli}.
 
 % =====================================================================

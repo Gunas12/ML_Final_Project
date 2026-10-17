@@ -11,7 +11,7 @@
 
 \title{Predicting bina.az Sale Prices and Price Tiers}
 \subtitle{From-scratch decision tree and Pegasos SVM}
-\author{Mammadli E. \and Mammadova G. \and Muradov A. \and Mursalov P.}
+\author{Esmira Mammadli \and Gunash Mammadova \and Ali Muradov \and Punhan Mursalov}
 \institute{MLE-AI-201 Machine Learning, AI Academy --- Cohort II}
 \date{}
 
@@ -74,7 +74,10 @@
       $w\leftarrow(1-\eta_t\lambda)w+\eta_t y_i x_i\,[y_i f(x_i)<1]$, $b\leftarrow b+\eta_t y_i$.
     \item Non-linear extension: random Fourier features $\phi(x)=\sqrt{2/D}\cos(\omega^\top x+b)$, $\omega\sim\mathcal N(0,2\gamma I)$; then linear Pegasos.
     \item Joint $(\lambda,\gamma)$ grid on validation. Chosen: $D=1024$, $\gamma=0.01$, $\lambda=3\cdot10^{-5}$, 400,000 updates.
+    \item Final model: $\|w\|=39.6$, margin width $2/\|w\|=0.0505$, 17,528 training points on or inside the margin; val F1 0.845.
   \end{itemize}
+  \vspace{0.2em}
+  \centering\fig[0.5\linewidth]{fig_svm_convergence.png}
 \end{frame}
 
 % 6 -------------------------------------------------------------------
@@ -107,7 +110,7 @@
       \vspace{0.5em}
       \begin{itemize}
         \item Tree matches sklearn (CV RMSE $438{,}746\pm29{,}122$; CV F1 $0.915\pm0.003$).
-        \item SVM = SVC in F1, ROC-AUC 0.924 vs 0.923; fit 3.4 s vs 120 s per fold ($\approx$36$\times$ faster).
+        \item SVM = SVC in F1 (CV $0.843$ both), ROC-AUC 0.924 vs 0.923; fit 5.3 s vs 245 s per fold ($\approx$46$\times$ faster).
         \item Tree has higher F1, SVM higher ROC-AUC (0.924 vs 0.920).
       \end{itemize}
     \end{column}
@@ -127,7 +130,7 @@
         \item Sparse districts (fewer than 200 train rows): median relative error 0.355 vs 0.177 elsewhere.
         \item SVM: precision 0.768 vs recall 0.922, it over-predicts premium. A tuned threshold may help (\emph{hypothesis, not tested}).
         \item Asking prices, not sale prices; about 700 possible re-posted ads kept; one seed, one split.
-        \item Our NumPy tree is 5--22$\times$ slower than sklearn's.
+        \item Our NumPy tree is 5--30$\times$ slower than sklearn's (CV fit 4.5 s vs 1.0 s, 20.5 s vs 0.7 s).
       \end{itemize}
     \end{column}
     \begin{column}{0.48\textwidth}
@@ -140,11 +143,11 @@
 \begin{frame}{8. Who did what, and what next}
   \small
   \begin{itemize}
-    \item \textbf{Mursalov}: data cleaning, features, EDA, clustering bonus.
-    \item \textbf{Mammadova}: decision tree, tree experiments, tree tests.
-    \item \textbf{Muradov}: Pegasos SVM, RFF, SVM experiments, AdaBoost review.
-    \item \textbf{Mammadli}: metrics, CV, baselines, benchmark, error analysis, \texttt{run\_all}, ridge/SVR bonus; Claude wrote the first versions of these files, she ran, tested, integrated and committed them (see \texttt{contribution\_report.md}).
-    \item AI use is disclosed in the report and the contribution report.
+    \item \textbf{Punhan Mursalov}: data loading and cleaning, leakage columns, features, split, EDA, README; PCA / k-means / DBSCAN bonus.
+    \item \textbf{Gunash Mammadova}: decision tree (impurity, split search, importances), tree tests and experiments; random forest bonus.
+    \item \textbf{Ali Muradov}: Pegasos SVM, random Fourier features, SVM experiments and tests; AdaBoost bonus.
+    \item \textbf{Esmira Mammadli}: metrics, CV and timing, sklearn baselines, benchmark, error analysis, \texttt{run\_all}, pinned requirements, report merge; ridge/SVR bonus.
+    \item AI use (small code corrections, help with the \LaTeX{} files) is disclosed in the report and in \texttt{contribution\_report.md}.
   \end{itemize}
   \textbf{Next:} tune the SVM threshold; model log price for luxury listings; de-duplicate re-posted ads; more seeds/splits.
 \end{frame}

@@ -1,109 +1,117 @@
 # MLE-AI-201 Machine Learning Final Project
 
-This project predicts sale prices and derived price tiers for listings from
-the bina.az real-estate dataset. It implements a decision tree and a Pegasos
-support-vector machine in NumPy and compares them with scikit-learn baselines.
+Price prediction on bina.az real-estate sale listings with two models written
+from scratch in NumPy, a **decision tree** (CART) and a **Pegasos SVM** with
+random Fourier features, compared with matched scikit-learn baselines.
 
-## Tasks
+- **Task A, regression:** predict the listing price (AZN).
+- **Task B, classification:** predict `premium` (1) or `standard` (0); premium
+  means the price is strictly above the **training-split median** (210,000 AZN).
+  The same threshold labels validation and test rows.
 
-- **Regression:** predict the listing price in AZN.
-- **Classification:** predict standard (`0`) versus premium (`1`), where
-  premium means the price is strictly above the median price in the training
-  split. The training threshold is reused for validation and test labels.
+Team: Esmira Mammadli, Gunash Mammadova, Ali Muradov, Punhan Mursalov
+(who did what: [contribution_report.md](contribution_report.md)).
 
-The models are evaluated with a deterministic 70% / 15% / 15%
-train/validation/test split. The split, SVM standardization, and model
-experiments use random seed **42**.
+## Headline results (test set, scored once, seed 42)
+
+| Model | Task A RMSE (AZN) | Task B F1 | Task B ROC-AUC |
+|-------|------------------:|----------:|---------------:|
+| NumPy DecisionTree (ours) | 358,672 | 0.919 | 0.920 |
+| sklearn DecisionTree | 358,999 | 0.918 | 0.919 |
+| NumPy Pegasos SVM + RFF (ours) | n/a | 0.838 | 0.924 |
+| sklearn SVC (linear) | n/a | 0.839 | 0.923 |
+| sklearn SGD (hinge) | n/a | 0.831 | 0.905 |
+| sklearn RBFSampler + SGD | n/a | 0.833 | 0.924 |
+
+5-fold CV on train+validation (mean ± std): tree RMSE 438,746 ± 29,122; tree
+F1 0.915 ± 0.003; our SVM F1 0.843 ± 0.005 (fit 5.3 s per fold) versus
+sklearn linear SVC 0.843 ± 0.008 (fit 245.4 s per fold). Full tables and
+discussion are in the report (`report/report.tex`). Optional bonus models
+(ridge / epsilon-SVR, random forest, AdaBoost, PCA / k-means / DBSCAN) are
+reported separately.
 
 ## Dataset
 
-Download Kaggle's **binaaz-sale-project** dataset by `sehriyarmemmedli` and
-place the extracted CSV at `data/bina_az_sale.csv`. Dataset details and
-version/date information are maintained in [data/README.md](data/README.md).
-The raw dataset is excluded from version control.
-
-Cleaning, missing-value handling, outlier policy, feature selection, and
-leakage exclusions are documented in
-[docs/data_decisions.md](docs/data_decisions.md). In particular,
-`unit_price` and `total_price` are target-derived and are excluded from model
-features.
+Kaggle **binaaz-sale-project** by `sehriyarmemmedli`
+(<https://www.kaggle.com/datasets/sehriyarmemmedli/binaaz-sale-project>).
+Place the CSV at `data/bina_az_sale.csv` (UTF-8). The file is not committed;
+see [data/README.md](data/README.md). The supplied copy has 100,775 rows and 51
+columns; after cleaning 64,350 listings and 171 features remain (split
+45,045 / 9,652 / 9,653). Every cleaning step is logged in
+[docs/data_decisions.md](docs/data_decisions.md). `unit_price` and
+`total_price` are derived from the target and are removed as leakage; IDs,
+URLs, free text, scrape time, view counts and currency labels are dropped too.
 
 ## Setup
 
-```powershell
+```bash
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
+`requirements.txt` is pinned from the tested environment. scikit-learn is
+used only for baselines, tests and bonus reference comparisons, never inside
+the tree, the SVM or the metrics (checked by `tests/test_core_has_no_sklearn.py`).
+
 ## Running
 
-Run the integrated baseline and from-scratch model pipeline:
-
-```powershell
-python -m src.run_all
+```bash
+pytest -q                      # all tests (250) should pass
+python -m src.run_all          # all numbers, tables and figures (full run)
+python -m src.run_all --bonus  # plus bonus models (run after the core part works)
+python -m src.run_all --fast   # small subset for development only
 ```
 
-Generate exploratory figures from prepared splits:
+The full run is deterministic (seed 42 in `data_prep.SEED`) and writes:
+figures to `report/figures/` (`fig_*.png`), LaTeX tables to
+`report/results_table.tex`, `report/tree_tables.tex`, `report/tree_macros.tex`
+and `report/bonus_table.tex`, and all numbers to `results/results.json`. The
+SVC baseline dominates the run time (about 4 minutes per fold). Figures are
+not committed, so run `run_all` before building the report.
 
-```python
-from src.data_prep import clean, load_raw, make_features, train_val_test_split
-from src.eda import run
+Build the report and slides after the run:
 
-cleaned = clean(load_raw())
-X, y_price, feature_names = make_features(cleaned)
-splits = train_val_test_split(X, y_price, seed=42)
-figures = run(splits, out_dir="report/figures")
+```bash
+cd report
+pdflatex report.tex && pdflatex report.tex     # report/report.pdf
+pdflatex slides.tex && pdflatex slides.tex     # slides, copy to presentation/slides.pdf
 ```
 
-The EDA output comprises price and log-price distributions, area versus
-price, room counts, regional and coordinate effects, and the training price
-tier balance. Figures are named `fig_eda_*.png`.
-
-Run the bonus PCA, K-means, and geographic DBSCAN clustering analysis:
-
-```powershell
-python src/bonus_clustering.py
-```
-
-The script prints adjusted Rand indices against price tiers and regions and
-saves the scree, elbow, and k-distance plots in `report/figures/`. Use
-`--clusters` to choose the K-means cluster count, or `--data` and `--figures`
-to override the input CSV and plot directory.
-
-Run the focused preparation and model tests:
-
-```powershell
-python -m pytest tests/test_data_prep.py tests/test_eda.py tests/test_decision_tree.py tests/test_svm.py tests/test_svm_experiments.py -q
-```
+Stand-alone clustering bonus: `python src/bonus_clustering.py` (options
+`--clusters`, `--data`, `--figures`).
 
 ## Repository structure
 
 ```text
 .
-├── data/
-│   └── README.md
-├── docs/
-│   └── data_decisions.md
-├── presentation/
-├── report/
-│   ├── figures/
-│   └── report.tex
+├── data/README.md            dataset instructions (CSV itself is not committed)
+├── docs/data_decisions.md    every cleaning decision with row counts
+├── presentation/slides.pdf   final slides
+├── report/                   report.tex, slides.tex, generated tables, figures/
+├── results/results.json      all numbers of the last full run
+├── scripts/pin_requirements.py
 ├── src/
-│   ├── baselines.py
-│   ├── bonus_clustering.py
-│   ├── data_prep.py
-│   ├── decision_tree.py
-│   ├── eda.py
-│   ├── evaluate.py
-│   ├── run_all.py
-│   ├── svm.py
-│   ├── svm_experiments.py
-│   └── tree_experiments.py
-├── tests/
+│   ├── data_prep.py          load, clean, features, split, tier label, standardize
+│   ├── eda.py                EDA figures
+│   ├── decision_tree.py      CART tree (Gini / entropy / MSE), NumPy only
+│   ├── svm.py                Pegasos SVM + random Fourier features, NumPy only
+│   ├── evaluate.py           metrics, k-fold, cross-validation, timing
+│   ├── baselines.py          matched scikit-learn baselines
+│   ├── benchmark.py          single test evaluation, CV table, timing
+│   ├── tree_experiments.py   depth / leaf sweeps, Gini vs entropy, learning curve
+│   ├── svm_experiments.py    lambda / gamma sweeps, convergence, margin
+│   ├── error_analysis.py     errors by price band, district, near-threshold
+│   ├── run_all.py            one-command pipeline
+│   └── bonus_*.py            ridge/SVR, random forest, AdaBoost, clustering
+├── tests/                    pytest suite
 ├── contribution_report.md
 └── requirements.txt
 ```
 
-The LaTeX report source is [report/report.tex](report/report.tex); keep the
-team contributions in [contribution_report.md](contribution_report.md).
+## Rules followed
+
+- Tree, SVM and metrics are our own NumPy code; sklearn is a baseline only.
+- Median threshold, scaler statistics and all hyperparameters come from
+  train / validation only; the test split is used once at the end.
+- Every random operation uses seed 42; two runs give identical results.
